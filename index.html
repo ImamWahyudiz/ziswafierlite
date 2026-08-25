@@ -1,14 +1,17 @@
 <!DOCTYPE html>
 <html lang="id" data-theme="dark">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
+
     <!-- Primary SEO Metadata -->
     <title>ZISWAFier — Smart Inflow Classifier for ZISWAF Reconciliation</title>
     <meta name="title" content="ZISWAFier — Smart Inflow Classifier for ZISWAF Reconciliation">
-    <meta name="description" content="Aplikasi klasifikasi &amp; rekonsiliasi arus kas masuk untuk lembaga Zakat, Infak, Sedekah, dan Wakaf. 5-Layer pipeline hybrid: deterministik + AI semantik. Client-side, tanpa server, siap pakai.">
-    <meta name="keywords" content="ziswaf, zakat, infak, sedekah, wakaf, mutasi bank, converter mutasi, klasifikasi mutasi, siak, akuntansi zakat, lazismu, baznas, excel converter, fintech syariah">
+    <meta name="description"
+        content="Aplikasi klasifikasi &amp; rekonsiliasi arus kas masuk untuk lembaga Zakat, Infak, Sedekah, dan Wakaf. 5-Layer pipeline hybrid: deterministik + AI semantik. Client-side, tanpa server, siap pakai.">
+    <meta name="keywords"
+        content="ziswaf, zakat, infak, sedekah, wakaf, mutasi bank, converter mutasi, klasifikasi mutasi, siak, akuntansi zakat, lazismu, baznas, excel converter, fintech syariah">
     <meta name="author" content="ZISWAFier Tech">
     <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
     <meta name="theme-color" content="#0b0f17">
@@ -30,7 +33,8 @@
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="ZISWAFier">
     <meta property="og:title" content="ZISWAFier — Smart Inflow Classifier for ZISWAF Reconciliation">
-    <meta property="og:description" content="Aplikasi klasifikasi &amp; rekonsiliasi arus kas masuk untuk lembaga Zakat, Infak, Sedekah, dan Wakaf. 5-Layer pipeline hybrid: deterministik + AI semantik.">
+    <meta property="og:description"
+        content="Aplikasi klasifikasi &amp; rekonsiliasi arus kas masuk untuk lembaga Zakat, Infak, Sedekah, dan Wakaf. 5-Layer pipeline hybrid: deterministik + AI semantik.">
     <meta property="og:image" content="./og-image.png">
     <meta property="og:image:type" content="image/png">
     <meta property="og:image:width" content="1200">
@@ -41,16 +45,19 @@
     <!-- Twitter Cards -->
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="ZISWAFier — Smart Inflow Classifier for ZISWAF Reconciliation">
-    <meta name="twitter:description" content="Aplikasi klasifikasi &amp; rekonsiliasi arus kas masuk untuk lembaga Zakat, Infak, Sedekah, dan Wakaf. 100% Client-Side.">
+    <meta name="twitter:description"
+        content="Aplikasi klasifikasi &amp; rekonsiliasi arus kas masuk untuk lembaga Zakat, Infak, Sedekah, dan Wakaf. 100% Client-Side.">
     <meta name="twitter:image" content="./og-image.png">
     <meta name="twitter:image:alt" content="Banner ZISWAFier Smart Inflow Converter">
 
     <!-- Preconnect & Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Outfit:wght@600;700;800&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-    
+
     <!-- App Stylesheets -->
     <link rel="stylesheet" href="./css/style.css">
     <link rel="stylesheet" href="./css/components.css">
@@ -85,386 +92,430 @@
     }
     </script>
 </head>
+
 <body>
 
-<!-- ═══════════════════════════ NAVBAR ═══════════════════════════ -->
-<nav class="navbar" id="navbar" style="position: sticky; top: 0; z-index: 100; background: rgba(11, 15, 23, 0.85); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border);">
-    <div class="container navbar-inner" style="display: flex; align-items: center; justify-content: space-between; height: 70px;">
-        <a href="./index.html" class="navbar-brand" style="display: flex; align-items: center; gap: 12px; text-decoration: none; color: var(--text);">
-            <img src="./logo.png" alt="ZISWAFier Logo" class="brand-logo-img" style="width: 38px; height: 38px; border-radius: 10px;">
-            <div>
-                <div style="font-weight: 800; font-size: 1.15rem; line-height: 1.2; letter-spacing: -0.5px; color: var(--text);">ZISWAFier</div>
-                <div style="font-size: 0.72rem; color: var(--accent); font-weight: 700; letter-spacing: 0.5px;">LITE EDITION</div>
-            </div>
-        </a>
-        <div class="navbar-menu" id="navbar-menu" style="display: flex; gap: 1.5rem; align-items: center;">
-            <a href="#problem" class="nav-link" style="color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500;">Tantangan</a>
-            <a href="#solution" class="nav-link" style="color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500;">Pipeline 5-Layer</a>
-            <a href="#features" class="nav-link" style="color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500;">Fitur</a>
-            <a href="#governance" class="nav-link" style="color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500;">Tata Kelola</a>
-            <a href="#contact" class="nav-link" style="color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500;">Kontak</a>
-        </div>
-        <div class="navbar-actions" style="display: flex; align-items: center; gap: 10px;">
-            <button class="btn btn-icon" id="btn-theme-toggle" title="Toggle Tema">
-                <i class="fa-solid fa-moon" id="theme-icon"></i>
-            </button>
-            <a href="./app.html" class="btn btn-primary btn-sm" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none;">
-                <i class="fa-solid fa-play"></i> Buka Converter
+    <!-- ═══════════════════════════ NAVBAR ═══════════════════════════ -->
+    <nav class="navbar" id="navbar"
+        style="position: sticky; top: 0; z-index: 100; background: rgba(11, 15, 23, 0.85); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border);">
+        <div class="container navbar-inner"
+            style="display: flex; align-items: center; justify-content: space-between; height: 70px;">
+            <a href="./index.html" class="navbar-brand"
+                style="display: flex; align-items: center; gap: 12px; text-decoration: none; color: var(--text);">
+                <img src="./logo.png" alt="ZISWAFier Logo" class="brand-logo-img"
+                    style="width: 38px; height: 38px; border-radius: 10px;">
+                <div>
+                    <div
+                        style="font-weight: 800; font-size: 1.15rem; line-height: 1.2; letter-spacing: -0.5px; color: var(--text);">
+                        ZISWAFier</div>
+                    <div style="font-size: 0.72rem; color: var(--accent); font-weight: 700; letter-spacing: 0.5px;">LITE
+                        EDITION</div>
+                </div>
             </a>
-        </div>
-    </div>
-</nav>
-
-<!-- ═══════════════════════════ HERO SECTION ═══════════════════════════ -->
-<section class="hero" id="hero">
-    <div class="hero-particles" id="hero-particles"></div>
-    <div class="hero-content">
-        <div class="hero-badge">
-            <i class="fa-solid fa-bolt text-emerald"></i> 100% Client-Side · Tanpa Database · Open Source
-        </div>
-        <h1 class="hero-title">
-            <span class="hero-title-accent">ZISWAFier</span>
-            <br>Smart Inflow Classifier
-        </h1>
-        <p class="hero-subtitle">
-            Aplikasi otomasi klasifikasi &amp; rekonsiliasi mutasi bank untuk lembaga <strong>Zakat, Infak, Sedekah, dan Wakaf</strong>.
-            <br>Proses instan di browser dengan <strong>5-Layer Routing Engine</strong> — 100% privat, aman, tanpa server backend.
-        </p>
-        <div class="hero-actions">
-            <a href="./app.html" class="btn btn-hero-primary">
-                <i class="fa-solid fa-play"></i> Coba Demo Sekarang
-            </a>
-            <a href="https://github.com/wahyu/ziswafierlite" class="btn btn-hero-outline" target="_blank" rel="noopener">
-                <i class="fa-brands fa-github"></i> View on GitHub
-            </a>
-        </div>
-        <div class="hero-stats">
-            <div class="hero-stat">
-                <span class="hero-stat-value">5</span>
-                <span class="hero-stat-label">Layer Pipeline</span>
+            <div class="navbar-menu" id="navbar-menu" style="display: flex; gap: 1.5rem; align-items: center;">
+                <a href="#problem" class="nav-link"
+                    style="color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500;">Tantangan</a>
+                <a href="#solution" class="nav-link"
+                    style="color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500;">Pipeline
+                    5-Layer</a>
+                <a href="#features" class="nav-link"
+                    style="color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500;">Fitur</a>
+                <a href="#governance" class="nav-link"
+                    style="color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500;">Tata
+                    Kelola</a>
+                <a href="#contact" class="nav-link"
+                    style="color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500;">Kontak</a>
             </div>
-            <div class="hero-stat">
-                <span class="hero-stat-value">100%</span>
-                <span class="hero-stat-label">Client-Side Private</span>
-            </div>
-            <div class="hero-stat">
-                <span class="hero-stat-value">0s</span>
-                <span class="hero-stat-label">Setup / Serverless</span>
-            </div>
-            <div class="hero-stat">
-                <span class="hero-stat-value">SIAK</span>
-                <span class="hero-stat-label">Excel/CSV Ready</span>
-            </div>
-        </div>
-    </div>
-</section>
-
-<!-- ═══════════════════════════ PROBLEM ═══════════════════════════ -->
-<section class="section" id="problem">
-    <div class="container">
-        <div class="section-header">
-            <span class="section-tag"><i class="fa-solid fa-triangle-exclamation"></i> Masalah</span>
-            <h2 class="section-title">Mengapa Rekonsiliasi ZISWAF Sulit?</h2>
-            <p class="section-subtitle">Lembaga amil menghadapi tantangan unik saat memproses ribuan transaksi masuk setiap bulan</p>
-        </div>
-        <div class="problem-grid">
-            <div class="problem-card glass" data-animate="fade-up">
-                <div class="problem-icon problem-icon-rose">
-                    <i class="fa-solid fa-building-columns"></i>
-                </div>
-                <h3>Noise Format Bank</h3>
-                <p>Label mutasi terpotong BI-FAST/RTGS/QRIS dan bercampur ID dompet digital. Data tidak terstruktur dari berbagai bank berbeda.</p>
-            </div>
-            <div class="problem-card glass" data-animate="fade-up" style="--delay: 0.1s">
-                <div class="problem-icon problem-icon-amber">
-                    <i class="fa-solid fa-language"></i>
-                </div>
-                <h3>Bahasa Non-Baku Donatur</h3>
-                <p>Sinonim bebas: "bantuan sumur" (Wakaf Air), "beras santri" (Gizi Santri), typo "iph" untuk zakat profesi.</p>
-            </div>
-            <div class="problem-card glass" data-animate="fade-up" style="--delay: 0.2s">
-                <div class="problem-icon problem-icon-purple">
-                    <i class="fa-solid fa-scale-balanced"></i>
-                </div>
-                <h3>Kepatuhan Syariah</h3>
-                <p>Dana Zakat &amp; Wakaf dilarang keras dicampur atau ditebak sembarangan. Butuh sistem yang akuntabel dan transparan.</p>
-            </div>
-        </div>
-    </div>
-</section>
-
-<!-- ═══════════════════════════ SOLUTION / PIPELINE ═══════════════════════════ -->
-<section class="section section-dark" id="solution">
-    <div class="container">
-        <div class="section-header">
-            <span class="section-tag"><i class="fa-solid fa-network-wired"></i> Solusi</span>
-            <h2 class="section-title">Pipeline Klasifikasi 5-Lapis</h2>
-            <p class="section-subtitle">Setiap baris mutasi diproses melalui pipa hybrid: deterministik cepat + AI semantik cerdas</p>
-        </div>
-        <div class="pipeline-flow">
-            <div class="pipeline-step" data-animate="fade-up">
-                <div class="pipeline-num">0</div>
-                <div class="pipeline-info">
-                    <h3>Text Sanitizer &amp; Alias Filter</h3>
-                    <p>Pembersihan noise format bank (BIFAST, RTGS, QRIS, e-wallet) &amp; ekstraksi nama pengirim.</p>
-                </div>
-                <span class="badge badge-keyword">Deterministik</span>
-            </div>
-            <div class="pipeline-step" data-animate="fade-up" style="--delay: 0.05s">
-                <div class="pipeline-num">1</div>
-                <div class="pipeline-info">
-                    <h3>Outflow / Expense Filter</h3>
-                    <p>Deteksi transaksi minus atau label "TRF KE" &rarr; COA 60100008 (Beban Lain-Lain).</p>
-                </div>
-                <span class="badge badge-keyword">Instant</span>
-            </div>
-            <div class="pipeline-step" data-animate="fade-up" style="--delay: 0.1s">
-                <div class="pipeline-num">2</div>
-                <div class="pipeline-info">
-                    <h3>Campaign Tail Code (Kode Ekor)</h3>
-                    <p>Pencocokan 3-digit unik nominal donasi per program kampanye.</p>
-                </div>
-                <span class="badge badge-campaign-tail">95% Akurat</span>
-            </div>
-            <div class="pipeline-step" data-animate="fade-up" style="--delay: 0.15s">
-                <div class="pipeline-num">3</div>
-                <div class="pipeline-info">
-                    <h3>Donatur Tetap Matching</h3>
-                    <p>Pencocokan nama pengirim ke database donatur tetap amil.</p>
-                </div>
-                <span class="badge badge-donatur-tetap">90% Akurat</span>
-            </div>
-            <div class="pipeline-step" data-animate="fade-up" style="--delay: 0.2s">
-                <div class="pipeline-num">4</div>
-                <div class="pipeline-info">
-                    <h3>Keyword &amp; Dictionary</h3>
-                    <p>Pencocokan kata kunci syariah ("fidyah", "wakaf", "gizi santri", "zakat maal").</p>
-                </div>
-                <span class="badge badge-keyword">90% Akurat</span>
-            </div>
-            <div class="pipeline-step pipeline-step-ai" data-animate="fade-up" style="--delay: 0.25s">
-                <div class="pipeline-num">5</div>
-                <div class="pipeline-info">
-                    <h3>AI Semantic / Unauthorized Fallback</h3>
-                    <p>Pencocokan konteks AI semantik (Ollama/Gemini/OpenAI) atau karantina ke 40201000 Unauthorized.</p>
-                </div>
-                <span class="badge badge-ai-semantic">AI / Karantina</span>
-            </div>
-        </div>
-    </div>
-</section>
-
-<!-- ═══════════════════════════ FEATURES ═══════════════════════════ -->
-<section class="section" id="features">
-    <div class="container">
-        <div class="section-header">
-            <span class="section-tag"><i class="fa-solid fa-sparkles"></i> Fitur</span>
-            <h2 class="section-title">Yang Membuat ZISWAFier Berbeda</h2>
-            <p class="section-subtitle">Didesain khusus untuk efisiensi amil dan kepatuhan akuntansi syariah</p>
-        </div>
-        <div class="features-grid">
-            <div class="feature-card glass" data-animate="fade-up">
-                <div class="feature-icon" style="background: rgba(56, 189, 248, 0.15); color: var(--accent);">
-                    <i class="fa-solid fa-brain"></i>
-                </div>
-                <h3>Hybrid 5-Layer Pipeline</h3>
-                <p>Layer 0–4 deterministik (&lt;10 detik/2000+ baris) + Layer 5 AI semantik untuk kasus kompleks.</p>
-            </div>
-            <div class="feature-card glass" data-animate="fade-up" style="--delay: 0.05s">
-                <div class="feature-icon" style="background: rgba(52, 211, 153, 0.15); color: var(--emerald);">
-                    <i class="fa-solid fa-user-check"></i>
-                </div>
-                <h3>Pencocokan Donatur Tetap</h3>
-                <p>Subset-name matching dua arah tanpa library berat — akurat untuk variasi nama transfer perbankan.</p>
-            </div>
-            <div class="feature-card glass" data-animate="fade-up" style="--delay: 0.1s">
-                <div class="feature-icon" style="background: rgba(167, 139, 250, 0.15); color: var(--accent2);">
-                    <i class="fa-solid fa-hashtag"></i>
-                </div>
-                <h3>Kode Ekor Nominal</h3>
-                <p>3 digit unik per program — klasifikasi otomatis 95% tanpa perlu memanggil API AI.</p>
-            </div>
-            <div class="feature-card glass" data-animate="fade-up" style="--delay: 0.15s">
-                <div class="feature-icon" style="background: rgba(251, 191, 36, 0.15); color: var(--warning);">
-                    <i class="fa-solid fa-triangle-exclamation"></i>
-                </div>
-                <h3>Akun Karantina Mutlak</h3>
-                <p>Dana tanpa keterangan dialokasikan ke Unauthorized (40201000) untuk menjaga kehati-hatian syariah.</p>
-            </div>
-            <div class="feature-card glass" data-animate="fade-up" style="--delay: 0.2s">
-                <div class="feature-icon" style="background: rgba(37, 211, 102, 0.15); color: #25d366;">
-                    <i class="fa-brands fa-whatsapp"></i>
-                </div>
-                <h3>WhatsApp Confirmation</h3>
-                <p>Generate pesan konfirmasi donasi instan via tautan WhatsApp Web ke nomor donatur terdaftar.</p>
-            </div>
-            <div class="feature-card glass" data-animate="fade-up" style="--delay: 0.25s">
-                <div class="feature-icon" style="background: rgba(56, 189, 248, 0.15); color: var(--accent);">
-                    <i class="fa-solid fa-file-export"></i>
-                </div>
-                <h3>Ekspor Jurnal SIAK</h3>
-                <p>Format jurnal rapi siap impor ke software akuntansi dalam format Excel (.xlsx) dan CSV.</p>
-            </div>
-        </div>
-    </div>
-</section>
-
-<!-- ═══════════════════════════ GOVERNANCE ═══════════════════════════ -->
-<section class="section section-dark" id="governance">
-    <div class="container">
-        <div class="section-header">
-            <span class="section-tag"><i class="fa-solid fa-users-gear"></i> Tata Kelola</span>
-            <h2 class="section-title">Model Tata Kelola Dua Lapis</h2>
-            <p class="section-subtitle">Pemisahan otoritas yang tegas antara Admin Keuangan &amp; Kepala Divisi</p>
-        </div>
-        <div class="governance-grid">
-            <div class="gov-card glass gov-card-admin" data-animate="fade-up">
-                <div class="gov-role-badge">Admin Keuangan</div>
-                <ul class="gov-list">
-                    <li><i class="fa-solid fa-cloud-arrow-up"></i> Upload mutasi bank (.xlsx/.csv)</li>
-                    <li><i class="fa-solid fa-pen"></i> Koreksi alokasi COA &amp; aksi massal</li>
-                    <li><i class="fa-brands fa-whatsapp"></i> Kirim konfirmasi WA ke donatur</li>
-                    <li><i class="fa-solid fa-file-excel"></i> Ekspor jurnal bersih kapan saja</li>
-                </ul>
-            </div>
-            <div class="gov-card glass gov-card-kadiv" data-animate="fade-up" style="--delay: 0.1s">
-                <div class="gov-role-badge gov-role-kadiv">Kepala Divisi (Kadiv)</div>
-                <ul class="gov-list">
-                    <li><i class="fa-solid fa-shield-halved"></i> Satu-satunya otoritas reklasifikasi Unauthorized</li>
-                    <li><i class="fa-solid fa-check-double"></i> Setujui perubahan program via respons WA</li>
-                    <li><i class="fa-solid fa-brain"></i> Konfigurasi global AI &amp; WhatsApp Gateway</li>
-                    <li><i class="fa-solid fa-lock"></i> Tutup Buku (Closing Date Lock)</li>
-                </ul>
-            </div>
-        </div>
-    </div>
-</section>
-
-<!-- ═══════════════════════════ DEMO PREVIEW ═══════════════════════════ -->
-<section class="section" id="demo-preview">
-    <div class="container">
-        <div class="section-header">
-            <span class="section-tag"><i class="fa-solid fa-desktop"></i> Live App</span>
-            <h2 class="section-title">Coba ZISWAFier Sekarang</h2>
-            <p class="section-subtitle">Jalankan langsung di browser Anda — tanpa instalasi, tanpa login, 100% privat</p>
-        </div>
-        <div class="demo-preview-card glass" data-animate="fade-up">
-            <div class="demo-preview-inner">
-                <div class="demo-preview-badge">
-                    <i class="fa-solid fa-circle-play"></i> Live Web App
-                </div>
-                <h3>ZISWAF Smart Inflow Converter</h3>
-                <p>Upload berkas mutasi bank (.xlsx/.csv), lihat 5-Layer engine bekerja secara real-time, dan unduh jurnal SIAK.</p>
-                <div class="demo-preview-features">
-                    <span><i class="fa-solid fa-check"></i> Upload &amp; Klasifikasi Otomatis</span>
-                    <span><i class="fa-solid fa-check"></i> Visual Dashboard &amp; Analytics</span>
-                    <span><i class="fa-solid fa-check"></i> Inline COA Edit &amp; Bulk Action</span>
-                    <span><i class="fa-solid fa-check"></i> Ekspor Jurnal (.xlsx &amp; .csv)</span>
-                    <span><i class="fa-solid fa-check"></i> Dark &amp; Light Mode</span>
-                </div>
-                <a href="./app.html" class="btn btn-hero-primary" style="font-size: 1.1rem; padding: 0.85rem 2.5rem;">
-                    <i class="fa-solid fa-rocket"></i> Buka Aplikasi Converter
+            <div class="navbar-actions" style="display: flex; align-items: center; gap: 10px;">
+                <button class="btn btn-icon" id="btn-theme-toggle" title="Toggle Tema">
+                    <i class="fa-solid fa-moon" id="theme-icon"></i>
+                </button>
+                <a href="./app.html" class="btn btn-primary btn-sm"
+                    style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none;">
+                    <i class="fa-solid fa-play"></i> Buka Converter
                 </a>
             </div>
         </div>
-    </div>
-</section>
+    </nav>
 
-<!-- ═══════════════════════════ CONTACT ═══════════════════════════ -->
-<section class="section section-dark" id="contact">
-    <div class="container">
-        <div class="section-header">
-            <span class="section-tag"><i class="fa-solid fa-envelope"></i> Kontak</span>
-            <h2 class="section-title">Hubungi Kami</h2>
-            <p class="section-subtitle">Pertanyaan, saran, atau diskusi implementasi sistem ZISWAF di lembaga Anda.</p>
-        </div>
-        <div class="contact-grid">
-            <div class="contact-info" data-animate="fade-up">
-                <div class="contact-item">
-                    <div class="contact-icon"><i class="fa-brands fa-github"></i></div>
-                    <div>
-                        <h4>GitHub Repository</h4>
-                        <a href="https://github.com/wahyu/ziswafierlite" target="_blank" rel="noopener">wahyu/ziswafierlite</a>
-                    </div>
+    <!-- ═══════════════════════════ HERO SECTION ═══════════════════════════ -->
+    <section class="hero" id="hero">
+        <div class="hero-particles" id="hero-particles"></div>
+        <div class="hero-content">
+            <div class="hero-badge">
+                <i class="fa-solid fa-bolt text-emerald"></i> 100% Client-Side · Tanpa Database · Open Source
+            </div>
+            <h1 class="hero-title">
+                <span class="hero-title-accent">ZISWAFier</span>
+                <br>Smart Inflow Classifier
+            </h1>
+            <p class="hero-subtitle">
+                Aplikasi otomasi klasifikasi &amp; rekonsiliasi mutasi bank untuk lembaga <strong>Zakat, Infak, Sedekah,
+                    dan Wakaf</strong>.
+                <br>Proses instan di browser dengan <strong>5-Layer Routing Engine</strong> — 100% privat, aman, tanpa
+                server backend.
+            </p>
+            <div class="hero-actions">
+                <a href="./app.html" class="btn btn-hero-primary">
+                    <i class="fa-solid fa-play"></i> Coba Demo Sekarang
+                </a>
+                <a href="https://github.com/wahyu/ziswafierlite" class="btn btn-hero-outline" target="_blank"
+                    rel="noopener">
+                    <i class="fa-brands fa-github"></i> View on GitHub
+                </a>
+            </div>
+            <div class="hero-stats">
+                <div class="hero-stat">
+                    <span class="hero-stat-value">5</span>
+                    <span class="hero-stat-label">Layer Pipeline</span>
                 </div>
-                <div class="contact-item">
-                    <div class="contact-icon"><i class="fa-solid fa-envelope"></i></div>
-                    <div>
-                        <h4>Email</h4>
-                        <a href="mailto:contact@ziswafier.com">contact@ziswafier.com</a>
-                    </div>
+                <div class="hero-stat">
+                    <span class="hero-stat-value">100%</span>
+                    <span class="hero-stat-label">Client-Side Private</span>
                 </div>
-                <div class="contact-item">
-                    <div class="contact-icon"><i class="fa-solid fa-play"></i></div>
-                    <div>
-                        <h4>Web Converter</h4>
-                        <a href="./app.html">Buka Converter App Langsung</a>
-                    </div>
+                <div class="hero-stat">
+                    <span class="hero-stat-value">0s</span>
+                    <span class="hero-stat-label">Setup / Serverless</span>
+                </div>
+                <div class="hero-stat">
+                    <span class="hero-stat-value">SIAK</span>
+                    <span class="hero-stat-label">Excel/CSV Ready</span>
                 </div>
             </div>
-            <form class="contact-form glass" id="contact-form" data-animate="fade-up" style="--delay: 0.1s" action="https://api.web3forms.com/submit" method="POST">
-                <input type="hidden" name="access_key" id="web3forms-key" value="YOUR_ACCESS_KEY_HERE">
-                <input type="hidden" name="subject" value="ZISWAFier Contact Form">
-                <input type="hidden" name="from_name" value="ZISWAFier Website">
-                <input type="checkbox" name="botcheck" class="hidden" style="display:none" tabindex="-1" autocomplete="off">
+        </div>
+    </section>
 
-                <div class="form-row">
+    <!-- ═══════════════════════════ PROBLEM ═══════════════════════════ -->
+    <section class="section" id="problem">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag"><i class="fa-solid fa-triangle-exclamation"></i> Masalah</span>
+                <h2 class="section-title">Mengapa Rekonsiliasi ZISWAF Sulit?</h2>
+                <p class="section-subtitle">Lembaga amil menghadapi tantangan unik saat memproses ribuan transaksi masuk
+                    setiap bulan</p>
+            </div>
+            <div class="problem-grid">
+                <div class="problem-card glass" data-animate="fade-up">
+                    <div class="problem-icon problem-icon-rose">
+                        <i class="fa-solid fa-building-columns"></i>
+                    </div>
+                    <h3>Noise Format Bank</h3>
+                    <p>Label mutasi terpotong BI-FAST/RTGS/QRIS dan bercampur ID dompet digital. Data tidak terstruktur
+                        dari berbagai bank berbeda.</p>
+                </div>
+                <div class="problem-card glass" data-animate="fade-up" style="--delay: 0.1s">
+                    <div class="problem-icon problem-icon-amber">
+                        <i class="fa-solid fa-language"></i>
+                    </div>
+                    <h3>Bahasa Non-Baku Donatur</h3>
+                    <p>Sinonim bebas: "bantuan sumur" (Wakaf Air), "beras santri" (Gizi Santri), typo "iph" untuk zakat
+                        profesi.</p>
+                </div>
+                <div class="problem-card glass" data-animate="fade-up" style="--delay: 0.2s">
+                    <div class="problem-icon problem-icon-purple">
+                        <i class="fa-solid fa-scale-balanced"></i>
+                    </div>
+                    <h3>Kepatuhan Syariah</h3>
+                    <p>Dana Zakat &amp; Wakaf dilarang keras dicampur atau ditebak sembarangan. Butuh sistem yang
+                        akuntabel dan transparan.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════════════════ SOLUTION / PIPELINE ═══════════════════════════ -->
+    <section class="section section-dark" id="solution">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag"><i class="fa-solid fa-network-wired"></i> Solusi</span>
+                <h2 class="section-title">Pipeline Klasifikasi 5-Lapis</h2>
+                <p class="section-subtitle">Setiap baris mutasi diproses melalui pipa hybrid: deterministik cepat + AI
+                    semantik cerdas</p>
+            </div>
+            <div class="pipeline-flow">
+                <div class="pipeline-step" data-animate="fade-up">
+                    <div class="pipeline-num">0</div>
+                    <div class="pipeline-info">
+                        <h3>Text Sanitizer &amp; Alias Filter</h3>
+                        <p>Pembersihan noise format bank (BIFAST, RTGS, QRIS, e-wallet) &amp; ekstraksi nama pengirim.
+                        </p>
+                    </div>
+                    <span class="badge badge-keyword">Deterministik</span>
+                </div>
+                <div class="pipeline-step" data-animate="fade-up" style="--delay: 0.05s">
+                    <div class="pipeline-num">1</div>
+                    <div class="pipeline-info">
+                        <h3>Outflow / Expense Filter</h3>
+                        <p>Deteksi transaksi minus atau label "TRF KE" &rarr; COA 60100008 (Beban Lain-Lain).</p>
+                    </div>
+                    <span class="badge badge-keyword">Instant</span>
+                </div>
+                <div class="pipeline-step" data-animate="fade-up" style="--delay: 0.1s">
+                    <div class="pipeline-num">2</div>
+                    <div class="pipeline-info">
+                        <h3>Campaign Tail Code (Kode Ekor)</h3>
+                        <p>Pencocokan 3-digit unik nominal donasi per program kampanye.</p>
+                    </div>
+                    <span class="badge badge-campaign-tail">95% Akurat</span>
+                </div>
+                <div class="pipeline-step" data-animate="fade-up" style="--delay: 0.15s">
+                    <div class="pipeline-num">3</div>
+                    <div class="pipeline-info">
+                        <h3>Donatur Tetap Matching</h3>
+                        <p>Pencocokan nama pengirim ke database donatur tetap amil.</p>
+                    </div>
+                    <span class="badge badge-donatur-tetap">90% Akurat</span>
+                </div>
+                <div class="pipeline-step" data-animate="fade-up" style="--delay: 0.2s">
+                    <div class="pipeline-num">4</div>
+                    <div class="pipeline-info">
+                        <h3>Keyword &amp; Dictionary</h3>
+                        <p>Pencocokan kata kunci syariah ("fidyah", "wakaf", "gizi santri", "zakat maal").</p>
+                    </div>
+                    <span class="badge badge-keyword">90% Akurat</span>
+                </div>
+                <div class="pipeline-step pipeline-step-ai" data-animate="fade-up" style="--delay: 0.25s">
+                    <div class="pipeline-num">5</div>
+                    <div class="pipeline-info">
+                        <h3>AI Semantic / Unauthorized Fallback</h3>
+                        <p>Pencocokan konteks AI semantik (Ollama/Gemini/OpenAI) atau karantina ke 40201000
+                            Unauthorized.</p>
+                    </div>
+                    <span class="badge badge-ai-semantic">AI / Karantina</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════════════════ FEATURES ═══════════════════════════ -->
+    <section class="section" id="features">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag"><i class="fa-solid fa-sparkles"></i> Fitur</span>
+                <h2 class="section-title">Yang Membuat ZISWAFier Berbeda</h2>
+                <p class="section-subtitle">Didesain khusus untuk efisiensi amil dan kepatuhan akuntansi syariah</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card glass" data-animate="fade-up">
+                    <div class="feature-icon" style="background: rgba(56, 189, 248, 0.15); color: var(--accent);">
+                        <i class="fa-solid fa-brain"></i>
+                    </div>
+                    <h3>Hybrid 5-Layer Pipeline</h3>
+                    <p>Layer 0–4 deterministik (&lt;10 detik/2000+ baris) + Layer 5 AI semantik untuk kasus kompleks.
+                    </p>
+                </div>
+                <div class="feature-card glass" data-animate="fade-up" style="--delay: 0.05s">
+                    <div class="feature-icon" style="background: rgba(52, 211, 153, 0.15); color: var(--emerald);">
+                        <i class="fa-solid fa-user-check"></i>
+                    </div>
+                    <h3>Pencocokan Donatur Tetap</h3>
+                    <p>Subset-name matching dua arah tanpa library berat — akurat untuk variasi nama transfer perbankan.
+                    </p>
+                </div>
+                <div class="feature-card glass" data-animate="fade-up" style="--delay: 0.1s">
+                    <div class="feature-icon" style="background: rgba(167, 139, 250, 0.15); color: var(--accent2);">
+                        <i class="fa-solid fa-hashtag"></i>
+                    </div>
+                    <h3>Kode Ekor Nominal</h3>
+                    <p>3 digit unik per program — klasifikasi otomatis 95% tanpa perlu memanggil API AI.</p>
+                </div>
+                <div class="feature-card glass" data-animate="fade-up" style="--delay: 0.15s">
+                    <div class="feature-icon" style="background: rgba(251, 191, 36, 0.15); color: var(--warning);">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                    </div>
+                    <h3>Akun Karantina Mutlak</h3>
+                    <p>Dana tanpa keterangan dialokasikan ke Unauthorized (40201000) untuk menjaga kehati-hatian
+                        syariah.</p>
+                </div>
+                <div class="feature-card glass" data-animate="fade-up" style="--delay: 0.2s">
+                    <div class="feature-icon" style="background: rgba(37, 211, 102, 0.15); color: #25d366;">
+                        <i class="fa-brands fa-whatsapp"></i>
+                    </div>
+                    <h3>WhatsApp Confirmation</h3>
+                    <p>Generate pesan konfirmasi donasi instan via tautan WhatsApp Web ke nomor donatur terdaftar.</p>
+                </div>
+                <div class="feature-card glass" data-animate="fade-up" style="--delay: 0.25s">
+                    <div class="feature-icon" style="background: rgba(56, 189, 248, 0.15); color: var(--accent);">
+                        <i class="fa-solid fa-file-export"></i>
+                    </div>
+                    <h3>Ekspor Jurnal SIAK</h3>
+                    <p>Format jurnal rapi siap impor ke software akuntansi dalam format Excel (.xlsx) dan CSV.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════════════════ GOVERNANCE ═══════════════════════════ -->
+    <section class="section section-dark" id="governance">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag"><i class="fa-solid fa-users-gear"></i> Tata Kelola</span>
+                <h2 class="section-title">Model Tata Kelola Dua Lapis</h2>
+                <p class="section-subtitle">Pemisahan otoritas yang tegas antara Admin Keuangan &amp; Kepala Divisi</p>
+            </div>
+            <div class="governance-grid">
+                <div class="gov-card glass gov-card-admin" data-animate="fade-up">
+                    <div class="gov-role-badge">Admin Keuangan</div>
+                    <ul class="gov-list">
+                        <li><i class="fa-solid fa-cloud-arrow-up"></i> Upload mutasi bank (.xlsx/.csv)</li>
+                        <li><i class="fa-solid fa-pen"></i> Koreksi alokasi COA &amp; aksi massal</li>
+                        <li><i class="fa-brands fa-whatsapp"></i> Kirim konfirmasi WA ke donatur</li>
+                        <li><i class="fa-solid fa-file-excel"></i> Ekspor jurnal bersih kapan saja</li>
+                    </ul>
+                </div>
+                <div class="gov-card glass gov-card-kadiv" data-animate="fade-up" style="--delay: 0.1s">
+                    <div class="gov-role-badge gov-role-kadiv">Kepala Divisi (Kadiv)</div>
+                    <ul class="gov-list">
+                        <li><i class="fa-solid fa-shield-halved"></i> Satu-satunya otoritas reklasifikasi Unauthorized
+                        </li>
+                        <li><i class="fa-solid fa-check-double"></i> Setujui perubahan program via respons WA</li>
+                        <li><i class="fa-solid fa-brain"></i> Konfigurasi global AI &amp; WhatsApp Gateway</li>
+                        <li><i class="fa-solid fa-lock"></i> Tutup Buku (Closing Date Lock)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════════════════ DEMO PREVIEW ═══════════════════════════ -->
+    <section class="section" id="demo-preview">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag"><i class="fa-solid fa-desktop"></i> Live App</span>
+                <h2 class="section-title">Coba ZISWAFier Sekarang</h2>
+                <p class="section-subtitle">Jalankan langsung di browser Anda — tanpa instalasi, tanpa login, 100%
+                    privat</p>
+            </div>
+            <div class="demo-preview-card glass" data-animate="fade-up">
+                <div class="demo-preview-inner">
+                    <div class="demo-preview-badge">
+                        <i class="fa-solid fa-circle-play"></i> Live Web App
+                    </div>
+                    <h3>ZISWAF Smart Inflow Converter</h3>
+                    <p>Upload berkas mutasi bank (.xlsx/.csv), lihat 5-Layer engine bekerja secara real-time, dan unduh
+                        jurnal SIAK.</p>
+                    <div class="demo-preview-features">
+                        <span><i class="fa-solid fa-check"></i> Upload &amp; Klasifikasi Otomatis</span>
+                        <span><i class="fa-solid fa-check"></i> Visual Dashboard &amp; Analytics</span>
+                        <span><i class="fa-solid fa-check"></i> Inline COA Edit &amp; Bulk Action</span>
+                        <span><i class="fa-solid fa-check"></i> Ekspor Jurnal (.xlsx &amp; .csv)</span>
+                        <span><i class="fa-solid fa-check"></i> Dark &amp; Light Mode</span>
+                    </div>
+                    <a href="./app.html" class="btn btn-hero-primary"
+                        style="font-size: 1.1rem; padding: 0.85rem 2.5rem;">
+                        <i class="fa-solid fa-rocket"></i> Buka Aplikasi Converter
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════════════════ CONTACT ═══════════════════════════ -->
+    <section class="section section-dark" id="contact">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag"><i class="fa-solid fa-envelope"></i> Kontak</span>
+                <h2 class="section-title">Hubungi Kami</h2>
+                <p class="section-subtitle">Pertanyaan, saran, atau diskusi implementasi sistem ZISWAF di lembaga Anda.
+                </p>
+            </div>
+            <div class="contact-grid">
+                <div class="contact-info" data-animate="fade-up">
+                    <div class="contact-item">
+                        <div class="contact-icon"><i class="fa-brands fa-github"></i></div>
+                        <div>
+                            <h4>GitHub Repository</h4>
+                            <a href="https://github.com/ImamWahyudiz/ziswafierlite" target="_blank"
+                                rel="noopener">ImamWahyudiz/ziswafierlite</a>
+                        </div>
+                    </div>
+                    <div class="contact-item">
+                        <div class="contact-icon"><i class="fa-solid fa-envelope"></i></div>
+                        <div>
+                            <h4>Email</h4>
+                            <a href="mailto:indahtrihartini14@gmail.com">indahtrihartini14@gmail.com</a>
+                        </div>
+                    </div>
+                    <div class="contact-item">
+                        <div class="contact-icon"><i class="fa-solid fa-play"></i></div>
+                        <div>
+                            <h4>Web Converter</h4>
+                            <a href="./app.html">Buka Converter App Langsung</a>
+                        </div>
+                    </div>
+                </div>
+                <form class="contact-form glass" id="contact-form" data-animate="fade-up" style="--delay: 0.1s"
+                    action="https://api.web3forms.com/submit" method="POST">
+                    <input type="hidden" name="access_key" id="web3forms-key" value="YOUR_ACCESS_KEY_HERE">
+                    <input type="hidden" name="subject" value="ZISWAFier Contact Form">
+                    <input type="hidden" name="from_name" value="ZISWAFier Website">
+                    <input type="checkbox" name="botcheck" class="hidden" style="display:none" tabindex="-1"
+                        autocomplete="off">
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="contact-name">Nama <span class="text-danger">*</span></label>
+                            <input type="text" id="contact-name" name="name" class="form-control"
+                                placeholder="Nama Anda" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="contact-email">Email <span class="text-danger">*</span></label>
+                            <input type="email" id="contact-email" name="email" class="form-control"
+                                placeholder="email@domain.com" required>
+                        </div>
+                    </div>
                     <div class="form-group">
-                        <label for="contact-name">Nama <span class="text-danger">*</span></label>
-                        <input type="text" id="contact-name" name="name" class="form-control" placeholder="Nama Anda" required>
+                        <label for="contact-org">Organisasi / Lembaga</label>
+                        <input type="text" id="contact-org" name="organization" class="form-control"
+                            placeholder="Nama lembaga zakat / yayasan">
                     </div>
                     <div class="form-group">
-                        <label for="contact-email">Email <span class="text-danger">*</span></label>
-                        <input type="email" id="contact-email" name="email" class="form-control" placeholder="email@domain.com" required>
+                        <label for="contact-message">Pesan <span class="text-danger">*</span></label>
+                        <textarea id="contact-message" name="message" class="form-control" rows="4"
+                            placeholder="Tulis pesan Anda..." required minlength="10"></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-hero-primary w-100" id="contact-submit">
+                        <i class="fa-solid fa-paper-plane"></i> Kirim Pesan
+                    </button>
+
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════════════════ FOOTER ═══════════════════════════ -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-inner">
+                <div class="footer-brand">
+                    <img src="./logo.png" alt="ZISWAFier Logo" class="footer-logo"
+                        style="width: 36px; height: 36px; border-radius: 8px;">
+                    <div>
+                        <div class="footer-title">ZISWAFier</div>
+                        <div class="footer-desc">Smart Inflow Classifier for ZISWAF Reconciliation</div>
                     </div>
                 </div>
-                <div class="form-group">
-                    <label for="contact-org">Organisasi / Lembaga</label>
-                    <input type="text" id="contact-org" name="organization" class="form-control" placeholder="Nama lembaga zakat / yayasan">
+                <div class="footer-links">
+                    <a href="#hero">Beranda</a>
+                    <a href="#problem">Tantangan</a>
+                    <a href="#solution">Pipeline</a>
+                    <a href="#features">Fitur</a>
+                    <a href="./app.html">Aplikasi Converter</a>
+                    <a href="https://github.com/ImamWahyudiz/ziswafierlite" target="_blank" rel="noopener">GitHub</a>
                 </div>
-                <div class="form-group">
-                    <label for="contact-message">Pesan <span class="text-danger">*</span></label>
-                    <textarea id="contact-message" name="message" class="form-control" rows="4" placeholder="Tulis pesan Anda..." required minlength="10"></textarea>
+                <div class="footer-bottom">
+                    <p>&copy; 2026 ZISWAFier &mdash; Licensed under <a href="https://opensource.org/licenses/MIT"
+                            target="_blank" rel="noopener">MIT License</a></p>
+                    <p class="footer-tagline">Membangun akuntabilitas &amp; transparansi lembaga amil ZISWAF</p>
                 </div>
-                <button type="submit" class="btn btn-hero-primary w-100" id="contact-submit">
-                    <i class="fa-solid fa-paper-plane"></i> Kirim Pesan
-                </button>
-                <p class="form-note">Pesan akan dikirim langsung ke email kami. Kami merespon dalam 1×24 jam.</p>
-            </form>
-        </div>
-    </div>
-</section>
-
-<!-- ═══════════════════════════ FOOTER ═══════════════════════════ -->
-<footer class="footer">
-    <div class="container">
-        <div class="footer-inner">
-            <div class="footer-brand">
-                <img src="./logo.png" alt="ZISWAFier Logo" class="footer-logo" style="width: 36px; height: 36px; border-radius: 8px;">
-                <div>
-                    <div class="footer-title">ZISWAFier</div>
-                    <div class="footer-desc">Smart Inflow Classifier for ZISWAF Reconciliation</div>
-                </div>
-            </div>
-            <div class="footer-links">
-                <a href="#hero">Beranda</a>
-                <a href="#problem">Tantangan</a>
-                <a href="#solution">Pipeline</a>
-                <a href="#features">Fitur</a>
-                <a href="./app.html">Aplikasi Converter</a>
-                <a href="https://github.com/wahyu/ziswafierlite" target="_blank" rel="noopener">GitHub</a>
-            </div>
-            <div class="footer-bottom">
-                <p>&copy; 2026 ZISWAFier &mdash; Licensed under <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener">MIT License</a></p>
-                <p class="footer-tagline">Membangun akuntabilitas &amp; transparansi lembaga amil ZISWAF</p>
             </div>
         </div>
-    </div>
-</footer>
+    </footer>
 
-<!-- Toast Container -->
-<div class="toast-root" id="toast-root"></div>
+    <!-- Toast Container -->
+    <div class="toast-root" id="toast-root"></div>
 
-<script src="./js/landing.js"></script>
+    <script src="./js/landing.js"></script>
 </body>
+
 </html>
