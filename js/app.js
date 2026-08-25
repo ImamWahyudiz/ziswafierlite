@@ -120,8 +120,8 @@ document.getElementById('btn-theme-toggle').addEventListener('click', () => {
 });
 
 try {
-  const saved = localStorage.getItem('ziswaf_theme');
-  if (saved) applyTheme(saved);
+  const currentTheme = document.documentElement.getAttribute('data-theme') || localStorage.getItem('ziswaf_theme') || 'dark';
+  applyTheme(currentTheme);
 } catch (e) {}
 
 // ─── CONFIG PAGE ──────────────────────────────────────────────────────────────
