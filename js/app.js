@@ -1085,7 +1085,11 @@ function renderTable() {
       const phone = donor?.phone || '';
       const prog = master.programs.find(p => p.id === row.assignedProgramId);
       const label = row.cleanedLabel || row.rawLabel || '-';
-      const layerBadge = `<span class="badge badge-${(row.matchedLayer || '').toLowerCase().replace('_', '-')}">${LAYER_LABELS[row.matchedLayer] || row.matchedLayer || '-'}</span>`;
+      const isAi = row.matchedLayer === 'AI_SEMANTIC';
+      const layerBadge = isAi
+        ? `<span class="badge badge-ai-semantic"><i class="fa-solid fa-wand-magic-sparkles"></i> AI</span>`
+        : `<span class="badge badge-${(row.matchedLayer || '').toLowerCase().replace(/_/g, '-')}">${LAYER_LABELS[row.matchedLayer] || row.matchedLayer || '-'}</span>`;
+      
       const sys = getSystemCodes(master);
       const statusBadge = row.assignedCoa === sys.unauth
         ? '<span class="badge badge-unauthorized">Unauthorized</span>'
@@ -1125,11 +1129,11 @@ function renderTable() {
           <td class="text-xs" data-tooltip="${esc(rationaleTooltip)}">
             <div class="layer-pill-compact">
               ${layerBadge}
-              ${row.confidence != null && row.matchedLayer === 'AI_SEMANTIC' ? `<span class="conf-badge">${(row.confidence * 100).toFixed(0)}%</span>` : ''}
+              ${row.confidence != null && isAi ? `<span class="conf-badge">${(row.confidence * 100).toFixed(0)}%</span>` : ''}
             </div>
           </td>
           <td class="text-xs table-reasoning-cell" data-tooltip="${esc(reasonDisplay)}">
-            <div class="truncate-1 text-muted">${esc(reasonDisplay)}</div>
+            <div class="truncate-1 ${isAi ? 'text-accent fw-semibold' : 'text-muted'}">${isAi ? '<i class="fa-solid fa-wand-magic-sparkles text-xs"></i> ' : ''}${esc(reasonDisplay)}</div>
           </td>
           <td class="nowrap">${statusBadge}</td>
           <td class="nowrap">${waBtn}</td>
@@ -1151,10 +1155,10 @@ function renderTable() {
             ${prog ? `<div class="text-muted text-xs mt-1 truncate-1" data-tooltip="${esc(prog.name)}"><i class="fa-solid fa-hand-holding-heart"></i> ${esc(prog.name)}</div>` : ''}
           </td>
           <td class="text-xs">
-            <div class="fw-semibold">${layerBadge}${row.confidence != null && row.matchedLayer === 'AI_SEMANTIC' ? ` <span class="conf-badge">${(row.confidence * 100).toFixed(0)}%</span>` : ''}</div>
+            <div class="fw-semibold">${layerBadge}${row.confidence != null && isAi ? ` <span class="conf-badge">${(row.confidence * 100).toFixed(0)}%</span>` : ''}</div>
           </td>
           <td class="text-xs table-reasoning-cell">
-            <div class="text-muted reasoning-full">${esc(reasonDisplay)}</div>
+            <div class="${isAi ? 'text-accent fw-semibold' : 'text-muted'} reasoning-full">${isAi ? '<i class="fa-solid fa-wand-magic-sparkles text-xs"></i> ' : ''}${esc(reasonDisplay)}</div>
           </td>
           <td class="nowrap">${statusBadge}</td>
           <td class="nowrap">${waBtn}</td>

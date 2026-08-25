@@ -496,6 +496,7 @@
                     <button class="btn btn-ghost btn-xs" id="btn-bulk-clear">Batalkan</button>
                 </div>
                 <div class="reporting-pagination-info text-muted text-xs" id="reporting-top-pagination-info"></div>
+                <div class="mobile-table-hint text-xs text-accent"><i class="fa-solid fa-arrows-left-right"></i> Geser tabel</div>
                 <div class="table-mode-controls ms-auto">
                     <button class="btn btn-outline btn-xs" id="btn-toggle-table-mode" title="Klik untuk beralih mode Ringkas / Detail">
                         <i class="fa-solid fa-list"></i> <span id="toggle-mode-text">Ringkas</span>
@@ -520,13 +521,13 @@
                                     <i class="fa-solid fa-sort-down sort-icon active" id="sort-icon-date"></i>
                                 </div>
                             </th>
-                            <th width="11%" class="th-sortable" data-sort="amount">
+                            <th width="12%" class="th-sortable" data-sort="amount">
                                 <div class="th-inner">
                                     <span>Nominal (Rp)</span>
                                     <i class="fa-solid fa-sort sort-icon" id="sort-icon-amount"></i>
                                 </div>
                             </th>
-                            <th width="20%" class="th-sortable" data-sort="label">
+                            <th width="19%" class="th-sortable" data-sort="label">
                                 <div class="th-inner">
                                     <span>Keterangan Mutasi &amp; Donatur</span>
                                     <i class="fa-solid fa-sort sort-icon" id="sort-icon-label"></i>
@@ -539,7 +540,7 @@
                                 </div>
                             </th>
                             <th width="10%">Layer</th>
-                            <th width="18%">Alasan Prediksi</th>
+                            <th width="18%">Alasan Prediksi (AI / Aturan)</th>
                             <th width="5%">Status</th>
                             <th width="5%">Aksi</th>
                         </tr>

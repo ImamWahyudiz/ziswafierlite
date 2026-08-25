@@ -635,32 +635,47 @@ body {
 /* ─── STATS GRID ─────────────────────────────────────────────────────────────── */
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
     gap: 1rem;
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
 }
 
 .stat-card {
-    padding: 1.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.125rem 1rem;
     position: relative;
+    min-width: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
 }
 
 .stat-icon {
-    font-size: 1.5rem;
-    margin-bottom: 0.5rem;
+    font-size: 1.25rem;
+    margin-bottom: 0.35rem;
 }
 
 .stat-label {
-    font-size: 0.875rem;
+    font-size: 0.775rem;
     color: var(--muted);
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.35rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .stat-value {
-    font-size: 1.875rem;
+    font-size: clamp(1rem, 2.2vw, 1.4rem);
     font-weight: 700;
     color: var(--text);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
 }
 
 .text-emerald { color: var(--emerald); }
@@ -967,6 +982,10 @@ body {
     text-transform: uppercase;
     letter-spacing: 0.03em;
     white-space: nowrap;
+}
+
+.mobile-table-hint {
+    display: none;
 }
 
 .table-compact-text {
@@ -1687,15 +1706,37 @@ input[type="checkbox"] {
     .stats-grid {
         grid-template-columns: 1fr 1fr;
         gap: 0.5rem;
+        margin-bottom: 1rem;
     }
     .stat-card {
-        padding: 0.75rem 0.5rem;
+        padding: 0.625rem 0.5rem;
+        border-radius: 10px;
+        min-width: 0;
     }
-    .stat-value {
-        font-size: 1.05rem;
+    .stat-card:last-child {
+        grid-column: span 2;
+    }
+    .stat-icon {
+        font-size: 1rem;
+        margin-bottom: 0.2rem;
     }
     .stat-label {
-        font-size: 0.6875rem;
+        font-size: 0.65rem;
+        margin-bottom: 0.2rem;
+    }
+    .stat-value {
+        font-size: clamp(0.75rem, 3.4vw, 0.95rem);
+        letter-spacing: -0.03em;
+    }
+    .mobile-table-hint {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        background: rgba(56, 189, 248, 0.1);
+        padding: 0.2rem 0.45rem;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        font-weight: 600;
     }
     .layer-counters {
         grid-template-columns: 1fr 1fr;
