@@ -312,6 +312,20 @@ export async function classifyBatch(rows, master, onProgress) {
     }
   }
 
+  function getCurrentCounts() {
+    const c = { EXPENSE: 0, CAMPAIGN_TAIL: 0, DONATUR_TETAP: 0, KEYWORD: 0, AI_SEMANTIC: 0, UNAUTHORIZED_FALLBACK: 0 };
+    for (const it of results) {
+      if (it.matchedLayer && c[it.matchedLayer] !== undefined) {
+        c[it.matchedLayer]++;
+      }
+    }
+    return c;
+  }
+
+  if (onProgress) {
+    onProgress(rows.length - needsAi.length, rows.length, getCurrentCounts());
+  }
+
   // Pass 2: Batch AI Semantic Match (Layer 4) — Process in chunks of 15
   if (settings.aiMode !== 'OFF' && needsAi.length > 0) {
     const BATCH_SIZE = 15;
@@ -331,7 +345,7 @@ export async function classifyBatch(rows, master, onProgress) {
         }
       }
       if (onProgress) {
-        onProgress(Math.min(b + BATCH_SIZE, rows.length), rows.length);
+        onProgress(Math.min(rows.length - needsAi.length + b + chunk.length, rows.length), rows.length, getCurrentCounts());
       }
     }
   }
@@ -358,7 +372,7 @@ export async function classifyBatch(rows, master, onProgress) {
   }
 
   if (onProgress) {
-    onProgress(rows.length, rows.length);
+    onProgress(rows.length, rows.length, getCurrentCounts());
   }
 
   return results;

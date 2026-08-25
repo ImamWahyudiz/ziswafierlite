@@ -773,22 +773,31 @@ async function processFile(file, merge) {
     parsed.sort((a, b) => b.rawAmount - a.rawAmount);
     const master = getMaster();
 
-    const classified = await classifyBatch(parsed, master, (current, total) => {
+    const classified = await classifyBatch(parsed, master, (current, total, counts) => {
       const p = Math.round((current / total) * 100);
       fill.style.width = p + '%';
       pct.textContent = p + '%';
       label.textContent = `Memproses ${current} / ${total}`;
-    });
-
-    // Update layer counters
-    classified.forEach(row => {
-      if (row?.matchedLayer && layerCounts[row.matchedLayer] !== undefined) {
-        layerCounts[row.matchedLayer]++;
+      if (counts) {
+        Object.keys(counts).forEach(k => {
+          const el = document.getElementById(`lc-${k}`);
+          if (el) el.textContent = counts[k];
+        });
       }
     });
-    Object.keys(layerCounts).forEach(k => {
-      const el = document.getElementById(`lc-${k}`);
-      if (el) el.textContent = layerCounts[k];
+
+    // Update final layer counters for both progress & done screen
+    const finalCounts = { EXPENSE: 0, CAMPAIGN_TAIL: 0, DONATUR_TETAP: 0, KEYWORD: 0, AI_SEMANTIC: 0, UNAUTHORIZED_FALLBACK: 0 };
+    classified.forEach(row => {
+      if (row?.matchedLayer && finalCounts[row.matchedLayer] !== undefined) {
+        finalCounts[row.matchedLayer]++;
+      }
+    });
+    Object.keys(finalCounts).forEach(k => {
+      const el1 = document.getElementById(`lc-${k}`);
+      const el2 = document.getElementById(`done-lc-${k}`);
+      if (el1) el1.textContent = finalCounts[k];
+      if (el2) el2.textContent = finalCounts[k];
     });
 
     let added = classified.length;
