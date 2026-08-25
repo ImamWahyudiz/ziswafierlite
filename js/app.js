@@ -55,22 +55,27 @@ document.addEventListener('click', e => {
 
 const _ttEl = document.getElementById('js-tooltip');
 document.addEventListener('mouseover', e => {
+  if (!_ttEl) return;
   const el = e.target.closest('[data-tooltip]');
   if (!el) { _ttEl.style.display = 'none'; return; }
-  _ttEl.textContent = el.dataset.tooltip;
+  const text = el.dataset.tooltip;
+  if (!text || !text.trim()) { _ttEl.style.display = 'none'; return; }
+  _ttEl.textContent = text;
   _ttEl.style.display = 'block';
 });
 document.addEventListener('mousemove', e => {
-  if (_ttEl.style.display === 'none') return;
+  if (!_ttEl || _ttEl.style.display === 'none') return;
   const gap = 12;
   let x = e.clientX + gap;
   let y = e.clientY - _ttEl.offsetHeight - gap;
-  if (x + _ttEl.offsetWidth > window.innerWidth) x = e.clientX - _ttEl.offsetWidth - gap;
-  if (y < 0) y = e.clientY + gap;
+  if (x + _ttEl.offsetWidth > window.innerWidth - 12) x = window.innerWidth - _ttEl.offsetWidth - 12;
+  if (x < 12) x = 12;
+  if (y < 12) y = e.clientY + gap + 10;
   _ttEl.style.left = x + 'px';
   _ttEl.style.top = y + 'px';
 });
 document.addEventListener('mouseout', e => {
+  if (!_ttEl) return;
   if (!e.target.closest('[data-tooltip]')) _ttEl.style.display = 'none';
 });
 
@@ -975,7 +980,7 @@ function renderTop5Chart(filtered, master) {
   _chartTop5 = new Chart(canvas, {
     type: 'bar',
     data: {
-      labels: top5.map(p => p.name.length > 14 ? p.name.slice(0, 14) + '…' : p.name),
+      labels: top5.map(p => p.name.length > 10 ? p.name.slice(0, 10) + '…' : p.name),
       datasets: [{ data: top5.map(p => p.total), backgroundColor: CHART_COLORS.slice(0, top5.length), borderRadius: 6, borderSkipped: false }]
     },
     options: {
@@ -985,8 +990,8 @@ function renderTop5Chart(filtered, master) {
         tooltip: { callbacks: { label: ctx => fmtRp(ctx.raw) + '  (' + top5[ctx.dataIndex].count + ' trx)' } }
       },
       scales: {
-        y: { ticks: { callback: v => 'Rp ' + (v >= 1e9 ? (v/1e9).toFixed(1)+'M' : v >= 1e6 ? (v/1e6).toFixed(0)+'jt' : v.toLocaleString('id-ID')), color: '#8b99b0', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
-        x: { ticks: { color: '#8b99b0', font: { size: 11 } }, grid: { display: false } }
+        y: { ticks: { callback: v => 'Rp ' + (v >= 1e9 ? (v/1e9).toFixed(1)+'M' : v >= 1e6 ? (v/1e6).toFixed(0)+'jt' : v.toLocaleString('id-ID')), color: '#8b99b0', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        x: { ticks: { color: '#8b99b0', font: { size: 9.5 }, maxRotation: 0, autoSkip: false }, grid: { display: false } }
       }
     }
   });
@@ -1108,6 +1113,11 @@ function renderTable() {
       const rationaleTooltip = `Layer: ${row.matchedLayer || 'MANUAL'}\nKeyakinan AI: ${row.confidence != null ? (row.confidence * 100).toFixed(0) + '%' : '-'}\nAlasan: ${row.reasoning || '-'}`;
       const labelTooltip = `Keterangan: ${row.rawLabel || '-'}\nPengirim: ${row.extractedSenderName || '-'}`;
       const reasonDisplay = row.reasoning || (row.matchedLayer === 'UNAUTHORIZED_FALLBACK' ? 'Tidak cocok kriteria (Unauthorized)' : '-');
+      const senderClean = (row.extractedSenderName || '').trim();
+      const labelClean = (label || '').trim();
+      const showSender = senderClean && 
+        senderClean.toLowerCase() !== labelClean.toLowerCase() && 
+        !labelClean.toLowerCase().includes(senderClean.toLowerCase());
 
       if (isCompact) {
         return `<tr class="${_selectedIds.has(row.id) ? 'row-selected' : ''}">
@@ -1118,7 +1128,7 @@ function renderTable() {
           <td class="text-xs" data-tooltip="${esc(labelTooltip)}">
             <div class="truncate-1">
               <span class="fw-semibold">${esc(label)}</span>
-              ${row.extractedSenderName ? `<span class="text-muted"> (${esc(row.extractedSenderName)})</span>` : ''}
+              ${showSender ? `<span class="text-muted"> (${esc(senderClean)})</span>` : ''}
             </div>
           </td>
           <td data-tooltip="${esc(coaTooltip)}">
@@ -1131,12 +1141,8 @@ function renderTable() {
               ${layerBadge}
               ${row.confidence != null && isAi ? `<span class="conf-badge">${(row.confidence * 100).toFixed(0)}%</span>` : ''}
             </div>
+            <div class="truncate-1 text-muted text-xs mt-1 ${isAi ? 'text-accent' : ''}">${isAi ? '<i class="fa-solid fa-wand-magic-sparkles text-xs"></i> ' : ''}${esc(reasonDisplay)}</div>
           </td>
-          <td class="text-xs table-reasoning-cell" data-tooltip="${esc(reasonDisplay)}">
-            <div class="truncate-1 ${isAi ? 'text-accent fw-semibold' : 'text-muted'}">${isAi ? '<i class="fa-solid fa-wand-magic-sparkles text-xs"></i> ' : ''}${esc(reasonDisplay)}</div>
-          </td>
-          <td class="nowrap">${statusBadge}</td>
-          <td class="nowrap">${waBtn}</td>
         </tr>`;
       } else {
         return `<tr class="${_selectedIds.has(row.id) ? 'row-selected' : ''}">
@@ -1146,7 +1152,7 @@ function renderTable() {
           <td class="nowrap fw-semibold ${row.isExpense || row.rawAmount < 0 ? 'text-rose' : 'text-emerald'}">${fmtRp(row.rawAmount)}</td>
           <td class="text-xs">
             <div class="fw-semibold truncate-1" data-tooltip="${esc(row.rawLabel || '')}">${esc(row.rawLabel || label)}</div>
-            ${row.extractedSenderName ? `<div class="text-muted text-xs truncate-1" data-tooltip="${esc(row.extractedSenderName)}"><i class="fa-solid fa-user-tag"></i> ${esc(row.extractedSenderName)}</div>` : ''}
+            ${showSender ? `<div class="text-muted text-xs truncate-1" data-tooltip="${esc(senderClean)}"><i class="fa-solid fa-user-tag"></i> ${esc(senderClean)}</div>` : ''}
           </td>
           <td>
             <select class="coa-select" data-id="${esc(row.id)}">
@@ -1156,18 +1162,15 @@ function renderTable() {
           </td>
           <td class="text-xs">
             <div class="fw-semibold">${layerBadge}${row.confidence != null && isAi ? ` <span class="conf-badge">${(row.confidence * 100).toFixed(0)}%</span>` : ''}</div>
+            <div class="${isAi ? 'text-accent' : 'text-muted'} reasoning-full mt-1">${isAi ? '<i class="fa-solid fa-wand-magic-sparkles text-xs"></i> ' : ''}${esc(reasonDisplay)}</div>
           </td>
-          <td class="text-xs table-reasoning-cell">
-            <div class="${isAi ? 'text-accent fw-semibold' : 'text-muted'} reasoning-full">${isAi ? '<i class="fa-solid fa-wand-magic-sparkles text-xs"></i> ' : ''}${esc(reasonDisplay)}</div>
-          </td>
-          <td class="nowrap">${statusBadge}</td>
-          <td class="nowrap">${waBtn}</td>
         </tr>`;
       }
     }).join('');
   }
 
   renderPagination(page, totalPages, total, start, end);
+  initAllStickyScrollbars();
   document.getElementById('reporting-top-pagination-info').textContent =
     total ? `Menampilkan ${start}–${end} dari ${total.toLocaleString('id-ID')} transaksi` : '';
 
@@ -1398,9 +1401,110 @@ subscribeSession(() => {
   }
 });
 
+// ─── STICKY HORIZONTAL SCROLLBAR ─────────────────────────────────────────────
+
+export class StickyHorizontalScrollbar {
+  constructor(targetContainer) {
+    if (!targetContainer) return;
+    this.target = targetContainer;
+    this.bar = document.createElement("div");
+    this.dummy = document.createElement("div");
+    this.isSyncing = false;
+    this._boundUpdate = this.update.bind(this);
+
+    this.init();
+  }
+
+  init() {
+    this.bar.className = "floating-table-scrollbar";
+    this.dummy.className = "floating-table-scrollbar-dummy";
+    this.bar.appendChild(this.dummy);
+    document.body.appendChild(this.bar);
+
+    this.bar.addEventListener("scroll", () => {
+      if (this.isSyncing) return;
+      this.isSyncing = true;
+      this.target.scrollLeft = this.bar.scrollLeft;
+      this.isSyncing = false;
+    }, { passive: true });
+
+    this.target.addEventListener("scroll", () => {
+      if (this.isSyncing) return;
+      this.isSyncing = true;
+      this.bar.scrollLeft = this.target.scrollLeft;
+      this.isSyncing = false;
+    }, { passive: true });
+
+    window.addEventListener("scroll", this._boundUpdate, { passive: true });
+    window.addEventListener("resize", this._boundUpdate, { passive: true });
+
+    if (window.ResizeObserver) {
+      this.ro = new ResizeObserver(this._boundUpdate);
+      this.ro.observe(this.target);
+      const tbl = this.target.querySelector("table");
+      if (tbl) this.ro.observe(tbl);
+    }
+
+    requestAnimationFrame(this._boundUpdate);
+  }
+
+  update() {
+    if (!this.target || !document.body.contains(this.target)) {
+      this.bar.style.display = "none";
+      return;
+    }
+
+    const targetRect = this.target.getBoundingClientRect();
+    const hasHorizontalOverflow = this.target.scrollWidth > (this.target.clientWidth + 2);
+    const isPartiallyVisible = targetRect.bottom > 80 && targetRect.top < (window.innerHeight - 20);
+    const isNativeScrollbarVisible = targetRect.bottom <= (window.innerHeight + 6);
+
+    if (!hasHorizontalOverflow || !isPartiallyVisible || isNativeScrollbarVisible) {
+      this.bar.style.display = "none";
+      return;
+    }
+
+    this.bar.style.display = "block";
+    this.bar.style.position = "fixed";
+    this.bar.style.left = `${targetRect.left}px`;
+    this.bar.style.width = `${targetRect.width}px`;
+    this.bar.style.bottom = "0px";
+    this.bar.style.zIndex = "45";
+
+    this.dummy.style.width = `${this.target.scrollWidth}px`;
+    this.dummy.style.height = "1px";
+
+    if (!this.isSyncing) {
+      this.isSyncing = true;
+      this.bar.scrollLeft = this.target.scrollLeft;
+      this.isSyncing = false;
+    }
+  }
+
+  destroy() {
+    window.removeEventListener("scroll", this._boundUpdate);
+    window.removeEventListener("resize", this._boundUpdate);
+    if (this.ro) this.ro.disconnect();
+    if (this.bar && this.bar.parentNode) {
+      this.bar.parentNode.removeChild(this.bar);
+    }
+  }
+}
+
+export function initAllStickyScrollbars() {
+  document.querySelectorAll(".table-responsive").forEach(el => {
+    if (!el._stickyScrollbar) {
+      el._stickyScrollbar = new StickyHorizontalScrollbar(el);
+    } else {
+      el._stickyScrollbar.update();
+    }
+  });
+}
+
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
   setupDropzone();
   navigateTo('config');
+  initAllStickyScrollbars();
 });

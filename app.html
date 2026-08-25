@@ -432,7 +432,8 @@
         <!-- Periode filter + Export -->
         <div class="reporting-filter-card">
             <div class="filter-row-compact">
-                <div class="filter-group-item">
+                <!-- 1. KIRI: Periode -->
+                <div class="filter-group-item filter-period-item">
                     <label><i class="fa-regular fa-calendar"></i> Periode:</label>
                     <select class="form-select" id="report-period-select">
                         <option value="ALL">Semua Waktu</option>
@@ -442,8 +443,21 @@
                         <option value="CUSTOM">Custom Rentang Tanggal...</option>
                     </select>
                 </div>
+                
+                <!-- 2. TENGAH: Kategori / Status -->
+                <div class="filter-group-item filter-category-item">
+                    <label><i class="fa-solid fa-layer-group"></i> Kategori / Status:</label>
+                    <select class="form-select" id="report-category-select">
+                        <option value="ALL">Semua Kategori & Status</option>
+                        <option value="UNAUTHORIZED">Unauthorized (40201000)</option>
+                        <option value="EXPENSE">Beban / Pengeluaran</option>
+                        <option value="MANUAL_OVERRIDE">Manual Override</option>
+                    </select>
+                </div>
+
+                <!-- 3. KANAN: Search -->
                 <div class="filter-group-item search-item">
-                    <label><i class="fa-solid fa-magnifying-glass"></i> Search:</label>
+                    <label><i class="fa-solid fa-magnifying-glass"></i> Cari Mutasi:</label>
                     <div class="search-input-group">
                         <select class="form-select-sm search-scope-select" id="report-search-scope">
                             <option value="ALL">Semua</option>
@@ -455,22 +469,18 @@
                         <span class="text-muted text-xs" id="search-result-count"></span>
                     </div>
                 </div>
-                <div class="filter-group-item">
-                    <label><i class="fa-solid fa-layer-group"></i> Kategori / Status:</label>
-                    <select class="form-select" id="report-category-select">
-                        <option value="ALL">Semua Kategori & Status</option>
-                        <option value="UNAUTHORIZED">Unauthorized (40201000)</option>
-                        <option value="EXPENSE">Beban / Pengeluaran</option>
-                        <option value="MANUAL_OVERRIDE">Manual Override</option>
-                    </select>
-                </div>
-                <div class="filter-group-item ms-auto">
-                    <button class="btn btn-success btn-sm" id="btn-export-xlsx">
-                        <i class="fa-solid fa-file-excel"></i> Ekspor Jurnal (.xlsx)
-                    </button>
-                    <button class="btn btn-ghost btn-sm" id="btn-export-csv2">
-                        <i class="fa-solid fa-file-csv"></i> .csv
-                    </button>
+
+                <!-- Export Actions -->
+                <div class="filter-group-item export-group-item">
+                    <label class="d-none-sm">&nbsp;</label>
+                    <div class="export-btns-wrap">
+                        <button class="btn btn-success btn-sm" id="btn-export-xlsx" title="Unduh Jurnal Excel untuk Odoo">
+                            <i class="fa-solid fa-file-excel"></i> Ekspor Jurnal
+                        </button>
+                        <button class="btn btn-ghost btn-sm" id="btn-export-csv2" title="Unduh CSV">
+                            <i class="fa-solid fa-file-csv"></i> .csv
+                        </button>
+                    </div>
                 </div>
             </div>
             <div class="date-range-row hidden" id="custom-date-row">
@@ -483,7 +493,7 @@
         </div>
 
         <!-- Table Card -->
-        <div class="table-card mt-3">
+        <div class="table-card mt-2">
             <div class="table-header-toolbar">
                 <div class="table-selection-status hidden" id="selection-banner">
                     <span id="selected-count-badge" class="fw-semibold text-xs">0 transaksi dicentang</span>
@@ -514,39 +524,36 @@
                     <thead>
                         <tr>
                             <th width="3%"><input type="checkbox" id="report-select-all" title="Pilih Semua"></th>
-                            <th width="3%">No</th>
-                            <th width="9%" class="th-sortable" data-sort="date">
+                            <th width="4%">No</th>
+                            <th width="11%" class="th-sortable" data-sort="date" title="Klik untuk mengurutkan tanggal">
                                 <div class="th-inner">
                                     <span>Tanggal</span>
                                     <i class="fa-solid fa-sort-down sort-icon active" id="sort-icon-date"></i>
                                 </div>
                             </th>
-                            <th width="12%" class="th-sortable" data-sort="amount">
+                            <th width="14%" class="th-sortable" data-sort="amount" title="Klik untuk mengurutkan nominal">
                                 <div class="th-inner">
                                     <span>Nominal (Rp)</span>
                                     <i class="fa-solid fa-sort sort-icon" id="sort-icon-amount"></i>
                                 </div>
                             </th>
-                            <th width="19%" class="th-sortable" data-sort="label">
+                            <th width="28%" class="th-sortable" data-sort="label" title="Klik untuk mengurutkan keterangan">
                                 <div class="th-inner">
                                     <span>Keterangan Mutasi &amp; Donatur</span>
                                     <i class="fa-solid fa-sort sort-icon" id="sort-icon-label"></i>
                                 </div>
                             </th>
-                            <th width="16%" class="th-sortable" data-sort="coa">
+                            <th width="22%" class="th-sortable" data-sort="coa" title="Klik untuk mengurutkan COA">
                                 <div class="th-inner">
                                     <span>Alokasi COA</span>
                                     <i class="fa-solid fa-sort sort-icon" id="sort-icon-coa"></i>
                                 </div>
                             </th>
-                            <th width="10%">Layer</th>
-                            <th width="18%">Alasan Prediksi (AI / Aturan)</th>
-                            <th width="5%">Status</th>
-                            <th width="5%">Aksi</th>
+                            <th width="18%">Layer &amp; AI Rationale</th>
                         </tr>
                     </thead>
                     <tbody id="transactions-tbody">
-                        <tr><td colspan="10" class="empty-state">Belum ada data. Upload mutasi bank terlebih dahulu.</td></tr>
+                        <tr><td colspan="7" class="empty-state">Belum ada data. Upload mutasi bank terlebih dahulu.</td></tr>
                     </tbody>
                 </table>
             </div>
