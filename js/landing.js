@@ -124,11 +124,46 @@ function showToast(message, type = 'info') {
     setTimeout(() => { t.classList.add('fadeout'); setTimeout(() => t.remove(), 300); }, 4000);
 }
 
+// ─── Mobile Navigation ─────────────────────────────────────────────────────────
+
+function initMobileMenu() {
+    const btn = document.getElementById('btn-mobile-menu');
+    const menu = document.getElementById('navbar-menu');
+    const icon = document.getElementById('menu-icon');
+    if (!btn || !menu) return;
+
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isActive = menu.classList.toggle('is-active');
+        if (icon) {
+            icon.className = isActive ? 'fa-solid fa-xmark' : 'fa-solid fa-bars';
+        }
+    });
+
+    // Close menu when clicking a link
+    menu.querySelectorAll('.nav-link').forEach((link) => {
+        link.addEventListener('click', () => {
+            menu.classList.remove('is-active');
+            if (icon) icon.className = 'fa-solid fa-bars';
+        });
+    });
+
+    // Close menu when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!menu.contains(e.target) && !btn.contains(e.target)) {
+            menu.classList.remove('is-active');
+            if (icon) icon.className = 'fa-solid fa-bars';
+        }
+    });
+}
+
 // ─── Initialize ────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
     initTheme();
+    initMobileMenu();
     initParticles();
     initScrollAnimations();
     initContactForm();
 });
+
