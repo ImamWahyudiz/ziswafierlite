@@ -1,0 +1,19 @@
+{
+  "name": "ZISWAF Smart Inflow Converter",
+  "short_name": "ZiswafierLite",
+  "description": "Otomasi Konversi & Klasifikasi Mutasi Bank Lembaga ZISWAF (Zakat, Infak, Sedekah, Wakaf) 100% Client-Side",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "categories": ["finance", "productivity", "business", "utilities"],
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

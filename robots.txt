@@ -1,0 +1,6 @@
+# robots.txt for ZISWAF Smart Inflow Converter
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: ./sitemap.xml
