@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="id" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZISWAF Smart Inflow Converter</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="./css/components.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════ APP SHELL ═══════════════════════════ -->
+<div id="app">
+
+    <!-- TOPBAR -->
+    <header class="topbar">
+        <div class="topbar-brand">
+            <img src="./favicon.svg" alt="Logo" class="brand-logo-img">
+            <div>
+                <div class="brand-title">ZISWAF Smart Inflow Converter</div>
+                <div class="brand-subtitle">Client-Side · Tanpa Database · GitHub Pages Ready</div>
+            </div>
+        </div>
+        <nav class="stepper" id="stepper">
+            <button class="step-btn active" data-page="config" id="step-config">
+                <span class="step-num">1</span>
+                <span class="step-label">Konfigurasi</span>
+            </button>
+            <span class="step-sep"><i class="fa-solid fa-chevron-right"></i></span>
+            <button class="step-btn" data-page="upload" id="step-upload">
+                <span class="step-num">2</span>
+                <span class="step-label">Upload</span>
+            </button>
+            <span class="step-sep"><i class="fa-solid fa-chevron-right"></i></span>
+            <button class="step-btn" data-page="dashboard" id="step-dashboard">
+                <span class="step-num">3</span>
+                <span class="step-label">Dashboard</span>
+            </button>
+        </nav>
+        <div class="topbar-actions">
+            <button class="btn btn-icon" id="btn-theme-toggle" title="Toggle tema">
+                <i class="fa-solid fa-moon" id="theme-icon"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- ═══════════ PAGE 1: KONFIGURASI ═══════════ -->
+    <main class="page" id="page-config">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">Konfigurasi Master Data</h1>
+                <p class="page-subtitle">Atur COA, Program, Donatur, dan Alias sebelum memproses mutasi.</p>
+            </div>
+            <button class="btn btn-primary" id="btn-goto-upload">
+                Lanjut ke Upload <i class="fa-solid fa-arrow-right"></i>
+            </button>
+        </div>
+
+        <!-- Sub-tabs -->
+        <div class="subtab-bar" id="config-subtabs">
+            <button class="subtab active" data-tab="coa">COA <span class="subtab-count" id="count-coa">0</span></button>
+            <button class="subtab" data-tab="program">Program <span class="subtab-count" id="count-program">0</span></button>
+            <button class="subtab" data-tab="donor">Donatur <span class="subtab-count" id="count-donor">0</span></button>
+            <button class="subtab" data-tab="alias">Alias Yayasan <span class="subtab-count" id="count-alias">0</span></button>
+            <button class="subtab" data-tab="ai">Pengaturan AI</button>
+            <button class="subtab" data-tab="backup">Backup / Restore</button>
+        </div>
+
+        <!-- TAB: COA -->
+        <div class="subtab-panel active" id="panel-coa">
+            <div class="panel-toolbar">
+                <button class="btn btn-ghost btn-sm" id="btn-add-coa"><i class="fa-solid fa-plus"></i> Tambah COA</button>
+                <label class="btn btn-ghost btn-sm">
+                    <i class="fa-solid fa-file-arrow-up"></i> Import xlsx/csv
+                    <input type="file" id="input-import-coa" accept=".xlsx,.csv" hidden>
+                </label>
+                <button class="btn btn-ghost btn-sm" id="btn-download-template-coa" title="Unduh template contoh">
+                    <i class="fa-solid fa-download"></i> Template
+                </button>
+                <span class="panel-hint">Kolom wajib: <code>NO AKUN</code>, <code>NAMA AKUN</code></span>
+                <button class="btn btn-ghost btn-sm ms-auto" data-tutorial="coa" title="Cara kerja tab ini"><i class="fa-solid fa-circle-question"></i> Cara Kerja</button>
+            </div>
+            <div class="table-card">
+                <table class="data-table" id="tbl-coa">
+                    <thead><tr>
+                        <th>Kode</th><th>Nama Akun</th><th>Kategori</th><th width="80">Aksi</th>
+                    </tr></thead>
+                    <tbody id="tbody-coa"></tbody>
+                </table>
+            </div>
+            
+            <div class="settings-card" style="margin-top: 2rem;">
+                <h3 style="margin-bottom: 0.5rem; font-size: 1rem; font-weight: 600;">Akun Default Sistem</h3>
+                <p class="text-muted text-xs" style="margin-bottom: 1.25rem;">Tiga akun inti untuk klasifikasi otomatis. Ubah jika lembaga memakai nomor akun berbeda. Perubahan berlaku untuk proses klasifikasi berikutnya — transaksi yang sudah diproses tidak berubah otomatis.</p>
+                
+                <div class="form-group">
+                    <label>COA Unauthorized <span class="text-muted text-xs">(Akun karantina: transaksi masuk yang gagal dikenali semua layer)</span></label>
+                    <select class="form-select" id="sys-coa-unauth"></select>
+                </div>
+                <div class="form-group">
+                    <label>COA Infak Umum <span class="text-muted text-xs">(Donatur tetap yang kirim tanpa keterangan program dialokasikan ke sini)</span></label>
+                    <select class="form-select" id="sys-coa-umum"></select>
+                </div>
+                <div class="form-group">
+                    <label>COA Beban (Pengeluaran) <span class="text-muted text-xs">(Uang keluar: mutasi minus atau label TRF KE)</span></label>
+                    <select class="form-select" id="sys-coa-expense"></select>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: PROGRAM -->
+        <div class="subtab-panel" id="panel-program">
+            <div class="panel-toolbar">
+                <button class="btn btn-ghost btn-sm" id="btn-add-program"><i class="fa-solid fa-plus"></i> Tambah Program</button>
+                <label class="btn btn-ghost btn-sm">
+                    <i class="fa-solid fa-file-arrow-up"></i> Import xlsx/csv
+                    <input type="file" id="input-import-program" accept=".xlsx,.csv" hidden>
+                </label>
+                <button class="btn btn-ghost btn-sm" id="btn-download-template-program" title="Unduh template contoh">
+                    <i class="fa-solid fa-download"></i> Template
+                </button>
+                <span class="panel-hint">Kolom wajib: <code>ID</code>, <code>NAMA PROGRAM</code></span>
+                <button class="btn btn-ghost btn-sm ms-auto" data-tutorial="program" title="Cara kerja tab ini"><i class="fa-solid fa-circle-question"></i> Cara Kerja</button>
+            </div>
+            <p class="text-muted text-xs" style="margin-bottom: 0.75rem;"><i class="fa-solid fa-circle-info"></i> Program menentukan akun tujuan dana. <b>Kode Ekor</b> = 3 digit terakhir nominal untuk pencocokan otomatis (Layer 2). <b>Keywords</b> = kata kunci di keterangan mutasi (Layer 4).</p>
+            <div class="table-card">
+                <table class="data-table" id="tbl-program">
+                    <thead><tr>
+                        <th>ID</th><th>Nama Program</th><th>COA</th><th>Kode Ekor</th><th>Keywords</th><th width="80">Aksi</th>
+                    </tr></thead>
+                    <tbody id="tbody-program"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB: DONATUR -->
+        <div class="subtab-panel" id="panel-donor">
+            <div class="panel-toolbar">
+                <button class="btn btn-ghost btn-sm" id="btn-add-donor"><i class="fa-solid fa-plus"></i> Tambah Donatur</button>
+                <label class="btn btn-ghost btn-sm">
+                    <i class="fa-solid fa-file-arrow-up"></i> Import xlsx/csv
+                    <input type="file" id="input-import-donor" accept=".xlsx,.csv" hidden>
+                </label>
+                <button class="btn btn-ghost btn-sm" id="btn-download-template-donor" title="Unduh template contoh">
+                    <i class="fa-solid fa-download"></i> Template
+                </button>
+                <span class="panel-hint">Kolom wajib: <code>NAMA</code></span>
+                <button class="btn btn-ghost btn-sm ms-auto" data-tutorial="donor" title="Cara kerja tab ini"><i class="fa-solid fa-circle-question"></i> Cara Kerja</button>
+            </div>
+            <p class="text-muted text-xs" style="margin-bottom: 0.75rem;"><i class="fa-solid fa-circle-info"></i> Nama donatur tetap dipakai mendeteksi pengirim (Layer 3). Tombol WA muncul hanya untuk baris transaksi dari donatur terdaftar.</p>
+            <div class="table-card">
+                <table class="data-table" id="tbl-donor">
+                    <thead><tr>
+                        <th>Nama</th><th>No. HP</th><th>Program Default</th><th width="80">Aksi</th>
+                    </tr></thead>
+                    <tbody id="tbody-donor"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB: ALIAS -->
+        <div class="subtab-panel" id="panel-alias">
+            <div class="panel-toolbar">
+                <button class="btn btn-ghost btn-sm" id="btn-add-alias"><i class="fa-solid fa-plus"></i> Tambah Alias</button>
+                <span class="panel-hint">Nama lembaga/yayasan yang akan disaring dari label mutasi</span>
+                <button class="btn btn-ghost btn-sm ms-auto" data-tutorial="alias" title="Cara kerja tab ini"><i class="fa-solid fa-circle-question"></i> Cara Kerja</button>
+            </div>
+            <div class="alias-list" id="alias-list"></div>
+        </div>
+
+        <!-- TAB: AI -->
+        <div class="subtab-panel" id="panel-ai">
+            <div class="panel-toolbar">
+                <span class="panel-hint">Layer 5: pencocokan semantik AI untuk mutasi yang belum terdeteksi</span>
+                <button class="btn btn-ghost btn-sm ms-auto" data-tutorial="ai" title="Cara kerja tab ini"><i class="fa-solid fa-circle-question"></i> Cara Kerja</button>
+            </div>
+            <div class="settings-card">
+                <div class="form-group">
+                    <label>AI Mode</label>
+                    <select class="form-select" id="ai-mode">
+                        <option value="OFF">OFF (Layer 0–4 saja)</option>
+                        <option value="LOCAL_OLLAMA">LOCAL OLLAMA</option>
+                        <option value="GEMINI">GEMINI</option>
+                        <option value="OPENAI">OPENAI</option>
+                    </select>
+                </div>
+                <div class="form-group" id="group-api-key">
+                    <label>API Key <span class="text-muted text-xs">(disimpan di sesi ini saja, tidak persist)</span></label>
+                    <input type="password" class="form-control" id="ai-api-key" placeholder="sk-... atau AIza...">
+                </div>
+                <div class="form-group" id="group-ollama-endpoint">
+                    <label>Ollama Endpoint</label>
+                    <input type="text" class="form-control" id="ollama-endpoint" placeholder="http://localhost:11434/api/chat">
+                </div>
+                <div class="form-group">
+                    <label>Confidence Threshold <span class="text-muted text-xs">(min 0.70 untuk diterima AI)</span></label>
+                    <input type="number" class="form-control" id="confidence-threshold" min="0" max="1" step="0.05" value="0.70">
+                </div>
+                <div class="form-group">
+                    <label>Nama Lembaga <span class="text-muted text-xs">(untuk template pesan WA)</span></label>
+                    <input type="text" class="form-control" id="org-name" placeholder="Yayasan Amil Zakat...">
+                </div>
+                <button class="btn btn-primary" id="btn-save-ai">
+                    <i class="fa-solid fa-floppy-disk"></i> Simpan Pengaturan AI
+                </button>
+            </div>
+        </div>
+
+        <!-- TAB: BACKUP -->
+        <div class="subtab-panel" id="panel-backup">
+            <div class="panel-toolbar">
+                <span class="panel-hint">Simpan & muat konfigurasi master data (COA, Program, Donatur, Alias)</span>
+                <button class="btn btn-ghost btn-sm ms-auto" data-tutorial="backup" title="Cara kerja tab ini"><i class="fa-solid fa-circle-question"></i> Cara Kerja</button>
+            </div>
+            <div class="settings-card">
+                <div class="backup-actions">
+                    <div class="backup-item">
+                        <div class="backup-label">Ekspor semua master data ke JSON</div>
+                        <button class="btn btn-ghost btn-sm" id="btn-export-json">
+                            <i class="fa-solid fa-file-export"></i> Ekspor Config JSON
+                        </button>
+                    </div>
+                    <div class="backup-item">
+                        <div class="backup-label">Impor master data dari JSON</div>
+                        <label class="btn btn-ghost btn-sm">
+                            <i class="fa-solid fa-file-import"></i> Impor Config JSON
+                            <input type="file" id="input-import-json" accept=".json" hidden>
+                        </label>
+                    </div>
+                    <div class="backup-item backup-item-danger">
+                        <div class="backup-label">Reset semua ke data default bawaan</div>
+                        <button class="btn btn-danger btn-sm" id="btn-reset-defaults">
+                            <i class="fa-solid fa-rotate-left"></i> Reset ke Default
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ═══════════ PAGE 2: UPLOAD ═══════════ -->
+    <main class="page hidden" id="page-upload">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">Upload Mutasi Bank</h1>
+                <p class="page-subtitle">Unggah berkas mutasi .xlsx atau .csv untuk diklasifikasikan.</p>
+            </div>
+        </div>
+
+        <div class="upload-area">
+            <div class="dropzone glass" id="dropzone">
+                <div class="dropzone-icon"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+                <p class="dropzone-text">Tarik & lepas berkas mutasi bank</p>
+                <p class="dropzone-subtext">.xlsx atau .csv · Maks. 10.000 baris per sesi</p>
+                <button class="btn btn-primary mt-3" id="btn-browse">
+                    <i class="fa-solid fa-folder-open"></i> Pilih Berkas
+                </button>
+                <input type="file" id="file-input" accept=".xlsx,.csv" hidden>
+            </div>
+
+            <div class="progress-section hidden" id="progress-section">
+                <div class="progress-header">
+                    <span class="progress-label" id="progress-label">Memproses...</span>
+                    <span class="progress-pct" id="progress-pct">0%</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <div class="layer-counters" id="layer-counters">
+                    <span class="layer-counter" data-layer="EXPENSE"><span class="lc-dot dot-expense"></span>Beban <b id="lc-EXPENSE">0</b></span>
+                    <span class="layer-counter" data-layer="CAMPAIGN_TAIL"><span class="lc-dot dot-tail"></span>Kode Ekor <b id="lc-CAMPAIGN_TAIL">0</b></span>
+                    <span class="layer-counter" data-layer="DONATUR_TETAP"><span class="lc-dot dot-donor"></span>Donatur <b id="lc-DONATUR_TETAP">0</b></span>
+                    <span class="layer-counter" data-layer="KEYWORD"><span class="lc-dot dot-keyword"></span>Keyword <b id="lc-KEYWORD">0</b></span>
+                    <span class="layer-counter" data-layer="AI_SEMANTIC"><span class="lc-dot dot-ai"></span>AI <b id="lc-AI_SEMANTIC">0</b></span>
+                    <span class="layer-counter" data-layer="UNAUTHORIZED_FALLBACK"><span class="lc-dot dot-unauth"></span>Unauthorized <b id="lc-UNAUTHORIZED_FALLBACK">0</b></span>
+                </div>
+            </div>
+
+            <div class="upload-done hidden" id="upload-done">
+                <div class="done-icon"><i class="fa-solid fa-circle-check"></i></div>
+                <div class="done-text" id="done-text">Klasifikasi selesai</div>
+                <div class="done-actions">
+                    <button class="btn btn-primary" id="btn-goto-dashboard">
+                        Buka Dashboard <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                    <button class="btn btn-ghost" id="btn-upload-another">
+                        <i class="fa-solid fa-plus"></i> Upload File Lain
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ═══════════ PAGE 3: DASHBOARD ═══════════ -->
+    <main class="page hidden" id="page-dashboard">
+
+        <!-- Empty State -->
+        <div class="empty-state-panel hidden" id="dashboard-empty-state">
+            <i class="fa-solid fa-inbox" style="font-size: 3rem; color: var(--muted); margin-bottom: 1rem;"></i>
+            <h3 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem;">Belum Ada Data Transaksi</h3>
+            <p class="text-muted" style="margin-bottom: 1.5rem;">Upload mutasi bank untuk mulai klasifikasi otomatis.</p>
+            <button class="btn btn-primary" onclick="document.getElementById('step-upload').click()">
+                <i class="fa-solid fa-cloud-arrow-up"></i> Upload Mutasi Bank
+            </button>
+        </div>
+
+        <!-- Dashboard Content -->
+        <div id="dashboard-content">
+        <!-- Stat Cards -->
+        <div class="stats-grid" id="stats-grid">
+            <div class="stat-card glass">
+                <div class="stat-icon text-emerald"><i class="fa-solid fa-arrow-trend-up"></i></div>
+                <div class="stat-label">Total Inflow</div>
+                <div class="stat-value text-emerald" id="stat-inflow">Rp 0</div>
+            </div>
+            <div class="stat-card glass">
+                <div class="stat-icon text-rose"><i class="fa-solid fa-arrow-trend-down"></i></div>
+                <div class="stat-label">Total Pengeluaran</div>
+                <div class="stat-value text-rose" id="stat-expense">Rp 0</div>
+            </div>
+            <div class="stat-card glass">
+                <div class="stat-icon text-cyan"><i class="fa-solid fa-equals"></i></div>
+                <div class="stat-label">Saldo Bersih (Masuk − Keluar)</div>
+                <div class="stat-value" id="stat-net">Rp 0</div>
+            </div>
+            <div class="stat-card glass">
+                <div class="stat-icon text-emerald"><i class="fa-solid fa-circle-check"></i></div>
+                <div class="stat-label">Terklasifikasi</div>
+                <div class="stat-value" id="stat-classified">0</div>
+            </div>
+            <div class="stat-card glass">
+                <div class="stat-icon text-warning"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                <div class="stat-label">Butuh Review (Unauthorized)</div>
+                <div class="stat-value text-warning" id="stat-unauthorized">0</div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="charts-row">
+            <div class="card chart-card">
+                <div class="card-header-flex">
+                    <h3><i class="fa-solid fa-ranking-star text-emerald"></i> Top 5 Pemasukan per Program</h3>
+                    <span class="text-muted text-xs" id="top5-subtitle">berdasarkan total nominal masuk</span>
+                </div>
+                <div class="top5-split">
+                    <div class="top5-legend" id="top5-legend"></div>
+                    <div class="top5-canvas-wrap"><canvas id="chart-top5"></canvas></div>
+                </div>
+            </div>
+            <div class="card chart-card">
+                <div class="card-header-flex">
+                    <h3><i class="fa-solid fa-chart-pie text-cyan"></i> Distribusi Kategori Dana</h3>
+                    <span class="text-muted text-xs" id="cat-subtitle">% dari total penerimaan</span>
+                </div>
+                <div class="cat-split">
+                    <div class="cat-canvas-wrap"><canvas id="chart-cat"></canvas></div>
+                    <div class="cat-legend" id="cat-legend"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Periode filter + Export -->
+        <div class="reporting-filter-card">
+            <div class="filter-row-compact">
+                <div class="filter-group-item">
+                    <label><i class="fa-regular fa-calendar"></i> Periode:</label>
+                    <select class="form-select" id="report-period-select">
+                        <option value="ALL">Semua Waktu</option>
+                        <option value="THIS_MONTH">Bulan Ini</option>
+                        <option value="LAST_MONTH">Bulan Lalu</option>
+                        <option value="THIS_YEAR">Tahun Ini</option>
+                        <option value="CUSTOM">Custom Rentang Tanggal...</option>
+                    </select>
+                </div>
+                <div class="filter-group-item search-item">
+                    <label><i class="fa-solid fa-magnifying-glass"></i> Search:</label>
+                    <div class="search-input-group">
+                        <select class="form-select-sm search-scope-select" id="report-search-scope">
+                            <option value="ALL">Semua</option>
+                            <option value="COA">No COA</option>
+                            <option value="COA_NAME">Nama Akun</option>
+                            <option value="LABEL">Keterangan / Donatur</option>
+                        </select>
+                        <input type="text" class="form-control" id="report-search-input" placeholder="Cari keterangan, no COA, akun...">
+                        <span class="text-muted text-xs" id="search-result-count"></span>
+                    </div>
+                </div>
+                <div class="filter-group-item">
+                    <label><i class="fa-solid fa-layer-group"></i> Kategori / Status:</label>
+                    <select class="form-select" id="report-category-select">
+                        <option value="ALL">Semua Kategori & Status</option>
+                        <option value="UNAUTHORIZED">Unauthorized (40201000)</option>
+                        <option value="EXPENSE">Beban / Pengeluaran</option>
+                        <option value="MANUAL_OVERRIDE">Manual Override</option>
+                    </select>
+                </div>
+                <div class="filter-group-item ms-auto">
+                    <button class="btn btn-success btn-sm" id="btn-export-xlsx">
+                        <i class="fa-solid fa-file-excel"></i> Ekspor Jurnal (.xlsx)
+                    </button>
+                    <button class="btn btn-ghost btn-sm" id="btn-export-csv2">
+                        <i class="fa-solid fa-file-csv"></i> .csv
+                    </button>
+                </div>
+            </div>
+            <div class="date-range-row hidden" id="custom-date-row">
+                <label>Dari:</label>
+                <input type="date" class="form-control form-control-sm" id="date-from">
+                <label>Sampai:</label>
+                <input type="date" class="form-control form-control-sm" id="date-to">
+                <button class="btn btn-ghost btn-sm" id="btn-apply-date">Terapkan</button>
+            </div>
+        </div>
+
+        <!-- Table Card -->
+        <div class="table-card mt-3">
+            <div class="table-header-toolbar">
+                <div class="table-selection-status hidden" id="selection-banner">
+                    <span id="selected-count-badge" class="fw-semibold text-xs">0 transaksi dicentang</span>
+                    <button class="btn btn-primary btn-xs" id="btn-bulk-general">
+                        <i class="fa-solid fa-check"></i> → Infak Umum
+                    </button>
+                    <button class="btn btn-danger btn-xs" id="btn-bulk-expense">
+                        <i class="fa-solid fa-minus"></i> → Beban
+                    </button>
+                    <button class="btn btn-ghost btn-xs" id="btn-bulk-clear">Batalkan</button>
+                </div>
+                <div class="reporting-pagination-info text-muted text-xs" id="reporting-top-pagination-info"></div>
+                <div class="table-mode-controls ms-auto">
+                    <button class="btn btn-outline btn-xs" id="btn-toggle-table-mode" title="Klik untuk beralih mode Ringkas / Detail">
+                        <i class="fa-solid fa-list"></i> <span id="toggle-mode-text">Ringkas</span>
+                    </button>
+                    <button class="btn btn-outline btn-xs" id="btn-upload-new">
+                        <i class="fa-solid fa-cloud-arrow-up"></i> Upload Baru
+                    </button>
+                </div>
+            </div>
+
+            <div class="global-selection-banner hidden" id="global-selection-banner"></div>
+
+            <div class="table-responsive">
+                <table class="data-table table-compact-mode" id="transactions-table">
+                    <thead>
+                        <tr>
+                            <th width="3%"><input type="checkbox" id="report-select-all" title="Pilih Semua"></th>
+                            <th width="4%">No</th>
+                            <th width="10%" class="th-sortable" data-sort="date">
+                                <div class="th-inner">
+                                    <span>Tanggal</span>
+                                    <i class="fa-solid fa-sort-down sort-icon active" id="sort-icon-date"></i>
+                                </div>
+                            </th>
+                            <th width="12%" class="th-sortable" data-sort="amount">
+                                <div class="th-inner">
+                                    <span>Nominal (Rp)</span>
+                                    <i class="fa-solid fa-sort sort-icon" id="sort-icon-amount"></i>
+                                </div>
+                            </th>
+                            <th width="23%" class="th-sortable" data-sort="label">
+                                <div class="th-inner">
+                                    <span>Keterangan Mutasi &amp; Donatur</span>
+                                    <i class="fa-solid fa-sort sort-icon" id="sort-icon-label"></i>
+                                </div>
+                            </th>
+                            <th width="19%" class="th-sortable" data-sort="coa">
+                                <div class="th-inner">
+                                    <span>Alokasi COA</span>
+                                    <i class="fa-solid fa-sort sort-icon" id="sort-icon-coa"></i>
+                                </div>
+                            </th>
+                            <th width="14%">Layer &amp; AI Rationale</th>
+                            <th width="8%">Status</th>
+                            <th width="7%">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="transactions-tbody">
+                        <tr><td colspan="9" class="empty-state">Belum ada data. Upload mutasi bank terlebih dahulu.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div id="reporting-pagination-container"></div>
+
+            <div class="reporting-footer-bar">
+                <div class="total-dana-item">
+                    <span class="label">Total Inflow:</span>
+                    <span class="val text-emerald" id="report-total-inflow">Rp 0</span>
+                </div>
+                <div class="total-dana-item">
+                    <span class="label">Total Pengeluaran:</span>
+                    <span class="val text-rose" id="report-total-outflow">Rp 0</span>
+                </div>
+                <div class="total-dana-item">
+                    <span class="label">Total Data:</span>
+                    <span class="val" id="report-total-rows">0 Baris</span>
+                </div>
+            </div>
+        </div>
+        </div><!-- /#dashboard-content -->
+    </main>
+
+</div><!-- /#app -->
+
+<!-- ═══════════ MODALS ═══════════ -->
+
+<!-- Modal: Tambah/Edit COA -->
+<div class="modal-overlay hidden" id="modal-coa">
+    <div class="modal-card glass">
+        <div class="modal-head">
+            <h2 id="modal-coa-title">Tambah COA</h2>
+            <button class="modal-close" data-close="modal-coa">&times;</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="coa-edit-idx">
+            <div class="form-group">
+                <label>Kode Akun <span class="text-danger">*</span></label>
+                <input type="number" class="form-control" id="coa-code" placeholder="40201001">
+            </div>
+            <div class="form-group">
+                <label>Nama Akun <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" id="coa-name" placeholder="Penerimaan Infak Umum">
+            </div>
+            <div class="form-group">
+                <label>Kategori</label>
+                <input type="text" class="form-control" id="coa-category" placeholder="UMUM">
+            </div>
+            <div class="modal-footer-actions">
+                <button class="btn btn-ghost" data-close="modal-coa">Batal</button>
+                <button class="btn btn-primary" id="btn-save-coa">Simpan</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Tambah/Edit Program -->
+<div class="modal-overlay hidden" id="modal-program">
+    <div class="modal-card glass">
+        <div class="modal-head">
+            <h2 id="modal-program-title">Tambah Program</h2>
+            <button class="modal-close" data-close="modal-program">&times;</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="program-edit-idx">
+            <div class="form-group">
+                <label>ID Program <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" id="program-id" placeholder="prog-sdq-umum">
+            </div>
+            <div class="form-group">
+                <label>Nama Program <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" id="program-name" placeholder="Infak Sedekah Umum">
+            </div>
+            <div class="form-group">
+                <label>Kode COA</label>
+                <select class="form-select" id="program-coa"></select>
+            </div>
+            <div class="form-group">
+                <label>Kode Ekor Nominal</label>
+                <input type="text" class="form-control" id="program-tail" placeholder="201">
+            </div>
+            <div class="form-group">
+                <label>Keywords <span class="text-muted text-xs">(pisahkan dengan titik koma)</span></label>
+                <input type="text" class="form-control" id="program-keywords" placeholder="sedekah;infak;jariyah">
+            </div>
+            <div class="form-group">
+                <label>Deskripsi <span class="text-muted text-xs">(untuk konteks AI)</span></label>
+                <textarea class="form-control" id="program-desc" rows="2"></textarea>
+            </div>
+            <div class="modal-footer-actions">
+                <button class="btn btn-ghost" data-close="modal-program">Batal</button>
+                <button class="btn btn-primary" id="btn-save-program">Simpan</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Tambah/Edit Donatur -->
+<div class="modal-overlay hidden" id="modal-donor">
+    <div class="modal-card glass">
+        <div class="modal-head">
+            <h2 id="modal-donor-title">Tambah Donatur</h2>
+            <button class="modal-close" data-close="modal-donor">&times;</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="donor-edit-idx">
+            <div class="form-group">
+                <label>Nama Donatur <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" id="donor-name" placeholder="Budi Santoso">
+            </div>
+            <div class="form-group">
+                <label>No. HP <span class="text-muted text-xs">(untuk WA, format 08xx atau 628xx)</span></label>
+                <input type="text" class="form-control" id="donor-phone" placeholder="08123456789">
+            </div>
+            <div class="form-group">
+                <label>Program Default</label>
+                <select class="form-select" id="donor-program">
+                    <option value="">-- Donasi Umum / Tanpa Program --</option>
+                </select>
+            </div>
+            <div class="modal-footer-actions">
+                <button class="btn btn-ghost" data-close="modal-donor">Batal</button>
+                <button class="btn btn-primary" id="btn-save-donor">Simpan</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: WA Compose -->
+<div class="modal-overlay hidden" id="modal-wa">
+    <div class="modal-card glass">
+        <div class="modal-head">
+            <h2><i class="fa-brands fa-whatsapp text-success"></i> Kirim Konfirmasi WA</h2>
+            <button class="modal-close" data-close="modal-wa">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Nomor Tujuan <span class="text-muted text-xs">(format 628xx, auto-konversi)</span></label>
+                <input type="text" class="form-control" id="wa-phone" placeholder="628123456789">
+            </div>
+            <div class="form-group">
+                <label>Pesan</label>
+                <textarea class="form-control" id="wa-message" rows="10"></textarea>
+            </div>
+            <div class="modal-footer-actions">
+                <button class="btn btn-ghost" data-close="modal-wa">Batal</button>
+                <button class="btn btn-success" id="btn-open-wa">
+                    <i class="fa-brands fa-whatsapp"></i> Buka WhatsApp
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Replace/Merge -->
+<div class="modal-overlay hidden" id="modal-replace-merge">
+    <div class="modal-card glass" style="max-width:440px">
+        <div class="modal-head">
+            <h2>Dataset Sudah Ada</h2>
+            <button class="modal-close" data-close="modal-replace-merge">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="text-muted mb-3">Sudah ada <b id="rm-existing-count">0</b> transaksi di sesi ini. Mau diapakan dengan file baru?</p>
+            <div class="modal-footer-actions">
+                <button class="btn btn-ghost" data-close="modal-replace-merge">Batal</button>
+                <button class="btn btn-ghost" id="btn-merge-file">
+                    <i class="fa-solid fa-code-merge"></i> Gabungkan (Dedupe)
+                </button>
+                <button class="btn btn-primary" id="btn-replace-file">
+                    <i class="fa-solid fa-rotate"></i> Timpa Data Lama
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tutorial modal -->
+<div class="modal-overlay hidden" id="modal-tutorial">
+    <div class="modal-card glass" style="max-width:540px">
+        <div class="modal-head">
+            <h2 id="tutorial-title">Cara Kerja</h2>
+            <button class="modal-close" data-close="modal-tutorial">&times;</button>
+        </div>
+        <div class="modal-body" id="tutorial-body"></div>
+        <div class="modal-footer-actions">
+            <button class="btn btn-primary" data-close="modal-tutorial">Mengerti</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast container -->
+<div class="toast-root" id="toast-root"></div>
+<div id="js-tooltip"></div>
+
+<script src="./js/vendor/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>
