@@ -46,7 +46,7 @@ const server = createServer(async (req, res) => {
   }
 });
 
-const port = await tryListen(server, Number(process.argv[2]) || 5173, 10);
+const port = await tryListen(server, Number(process.argv[2]) || 5174, 10);
 console.log("");
 console.log("  ZISWAF Demo Converter berjalan.");
 console.log(`  Buka di browser:  http://localhost:${port}`);

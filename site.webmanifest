@@ -10,9 +10,9 @@
   "categories": ["finance", "productivity", "business", "utilities"],
   "icons": [
     {
-      "src": "./favicon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "./logo.png",
+      "sizes": "292x292",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

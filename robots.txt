@@ -1,6 +1,9 @@
-# robots.txt for ZISWAF Smart Inflow Converter
+# ZISWAFier - robots.txt
 User-agent: *
 Allow: /
 
 # Sitemap
-Sitemap: ./sitemap.xml
+Sitemap: https://ziswafierlite.github.io/ziswafier/sitemap.xml
+
+# Crawl-delay (optional, for aggressive bots)
+Crawl-delay: 1
