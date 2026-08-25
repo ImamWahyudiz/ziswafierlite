@@ -82,6 +82,42 @@
 
         <!-- TAB: COA -->
         <div class="subtab-panel active" id="panel-coa">
+            <!-- Akun Default Sistem (Placed at Top) -->
+            <div class="settings-card sys-coa-card mb-3">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                    <h3 style="font-size: 1rem; font-weight: 600; margin: 0;"><i class="fa-solid fa-sliders text-accent"></i> Akun Default Sistem</h3>
+                    <span class="text-muted text-xs">Perubahan berlaku untuk klasifikasi berikutnya</span>
+                </div>
+                <p class="text-muted text-xs mb-3">Tiga akun inti untuk klasifikasi otomatis. Sesuaikan nomor akun jika lembaga memakai standar COA berbeda.</p>
+                
+                <div class="sys-coa-grid">
+                    <div class="sys-coa-item">
+                        <div class="sys-coa-header">
+                            <span class="sys-coa-title">COA Unauthorized</span>
+                            <span class="badge badge-unauthorized-fallback text-xs">Karantina</span>
+                        </div>
+                        <select class="form-select" id="sys-coa-unauth"></select>
+                        <div class="sys-coa-hint">Transaksi masuk yang gagal dikenali semua layer</div>
+                    </div>
+                    <div class="sys-coa-item">
+                        <div class="sys-coa-header">
+                            <span class="sys-coa-title">COA Infak Umum</span>
+                            <span class="badge badge-donatur-tetap text-xs">Baseline</span>
+                        </div>
+                        <select class="form-select" id="sys-coa-umum"></select>
+                        <div class="sys-coa-hint">Donatur tetap yang transfer tanpa info program</div>
+                    </div>
+                    <div class="sys-coa-item">
+                        <div class="sys-coa-header">
+                            <span class="sys-coa-title">COA Beban</span>
+                            <span class="badge badge-expense text-xs">Uang Keluar</span>
+                        </div>
+                        <select class="form-select" id="sys-coa-expense"></select>
+                        <div class="sys-coa-hint">Mutasi minus atau transaksi pengeluaran / beban</div>
+                    </div>
+                </div>
+            </div>
+
             <div class="panel-toolbar">
                 <button class="btn btn-ghost btn-sm" id="btn-add-coa"><i class="fa-solid fa-plus"></i> Tambah COA</button>
                 <label class="btn btn-ghost btn-sm">
@@ -95,29 +131,13 @@
                 <button class="btn btn-ghost btn-sm ms-auto" data-tutorial="coa" title="Cara kerja tab ini"><i class="fa-solid fa-circle-question"></i> Cara Kerja</button>
             </div>
             <div class="table-card">
-                <table class="data-table" id="tbl-coa">
-                    <thead><tr>
-                        <th>Kode</th><th>Nama Akun</th><th>Kategori</th><th width="80">Aksi</th>
-                    </tr></thead>
-                    <tbody id="tbody-coa"></tbody>
-                </table>
-            </div>
-            
-            <div class="settings-card" style="margin-top: 2rem;">
-                <h3 style="margin-bottom: 0.5rem; font-size: 1rem; font-weight: 600;">Akun Default Sistem</h3>
-                <p class="text-muted text-xs" style="margin-bottom: 1.25rem;">Tiga akun inti untuk klasifikasi otomatis. Ubah jika lembaga memakai nomor akun berbeda. Perubahan berlaku untuk proses klasifikasi berikutnya — transaksi yang sudah diproses tidak berubah otomatis.</p>
-                
-                <div class="form-group">
-                    <label>COA Unauthorized <span class="text-muted text-xs">(Akun karantina: transaksi masuk yang gagal dikenali semua layer)</span></label>
-                    <select class="form-select" id="sys-coa-unauth"></select>
-                </div>
-                <div class="form-group">
-                    <label>COA Infak Umum <span class="text-muted text-xs">(Donatur tetap yang kirim tanpa keterangan program dialokasikan ke sini)</span></label>
-                    <select class="form-select" id="sys-coa-umum"></select>
-                </div>
-                <div class="form-group">
-                    <label>COA Beban (Pengeluaran) <span class="text-muted text-xs">(Uang keluar: mutasi minus atau label TRF KE)</span></label>
-                    <select class="form-select" id="sys-coa-expense"></select>
+                <div class="table-responsive">
+                    <table class="data-table" id="tbl-coa">
+                        <thead><tr>
+                            <th>Kode</th><th>Nama Akun</th><th>Kategori</th><th width="80">Aksi</th>
+                        </tr></thead>
+                        <tbody id="tbody-coa"></tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -138,12 +158,14 @@
             </div>
             <p class="text-muted text-xs" style="margin-bottom: 0.75rem;"><i class="fa-solid fa-circle-info"></i> Program menentukan akun tujuan dana. <b>Kode Ekor</b> = 3 digit terakhir nominal untuk pencocokan otomatis (Layer 2). <b>Keywords</b> = kata kunci di keterangan mutasi (Layer 4).</p>
             <div class="table-card">
-                <table class="data-table" id="tbl-program">
-                    <thead><tr>
-                        <th>ID</th><th>Nama Program</th><th>COA</th><th>Kode Ekor</th><th>Keywords</th><th width="80">Aksi</th>
-                    </tr></thead>
-                    <tbody id="tbody-program"></tbody>
-                </table>
+                <div class="table-responsive">
+                    <table class="data-table" id="tbl-program">
+                        <thead><tr>
+                            <th>ID</th><th>Nama Program</th><th>COA</th><th>Kode Ekor</th><th>Keywords</th><th width="80">Aksi</th>
+                        </tr></thead>
+                        <tbody id="tbody-program"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -163,12 +185,14 @@
             </div>
             <p class="text-muted text-xs" style="margin-bottom: 0.75rem;"><i class="fa-solid fa-circle-info"></i> Nama donatur tetap dipakai mendeteksi pengirim (Layer 3). Tombol WA muncul hanya untuk baris transaksi dari donatur terdaftar.</p>
             <div class="table-card">
-                <table class="data-table" id="tbl-donor">
-                    <thead><tr>
-                        <th>Nama</th><th>No. HP</th><th>Program Default</th><th width="80">Aksi</th>
-                    </tr></thead>
-                    <tbody id="tbody-donor"></tbody>
-                </table>
+                <div class="table-responsive">
+                    <table class="data-table" id="tbl-donor">
+                        <thead><tr>
+                            <th>Nama</th><th>No. HP</th><th>Program Default</th><th width="80">Aksi</th>
+                        </tr></thead>
+                        <tbody id="tbody-donor"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -185,22 +209,26 @@
         <!-- TAB: AI -->
         <div class="subtab-panel" id="panel-ai">
             <div class="panel-toolbar">
-                <span class="panel-hint">Layer 5: pencocokan semantik AI untuk mutasi yang belum terdeteksi</span>
+                <span class="panel-hint">Layer 5: pencocokan semantik AI untuk mutasi yang belum terdeteksi oleh Layer 0–4</span>
                 <button class="btn btn-ghost btn-sm ms-auto" data-tutorial="ai" title="Cara kerja tab ini"><i class="fa-solid fa-circle-question"></i> Cara Kerja</button>
             </div>
             <div class="settings-card">
                 <div class="form-group">
-                    <label>AI Mode</label>
+                    <label>AI Provider / Mode</label>
                     <select class="form-select" id="ai-mode">
                         <option value="OFF">OFF (Layer 0–4 saja)</option>
+                        <option value="GEMINI">GEMINI (Google AI)</option>
+                        <option value="OPENAI">OPENAI (GPT)</option>
                         <option value="LOCAL_OLLAMA">LOCAL OLLAMA</option>
-                        <option value="GEMINI">GEMINI</option>
-                        <option value="OPENAI">OPENAI</option>
                     </select>
                 </div>
+                <div class="form-group" id="group-ai-model">
+                    <label>Nama Model AI <span class="text-muted text-xs">(opsional, default: gemini-2.0-flash / gpt-4o-mini)</span></label>
+                    <input type="text" class="form-control" id="ai-model-name" placeholder="gemini-2.0-flash">
+                </div>
                 <div class="form-group" id="group-api-key">
-                    <label>API Key <span class="text-muted text-xs">(disimpan di sesi ini saja, tidak persist)</span></label>
-                    <input type="password" class="form-control" id="ai-api-key" placeholder="sk-... atau AIza...">
+                    <label>API Key <span class="text-muted text-xs">(disimpan aman di sesi browser Anda, tidak persist ke database)</span></label>
+                    <input type="password" class="form-control" id="ai-api-key" placeholder="AIzaSy... atau sk-...">
                 </div>
                 <div class="form-group" id="group-ollama-endpoint">
                     <label>Ollama Endpoint</label>
@@ -211,12 +239,17 @@
                     <input type="number" class="form-control" id="confidence-threshold" min="0" max="1" step="0.05" value="0.70">
                 </div>
                 <div class="form-group">
-                    <label>Nama Lembaga <span class="text-muted text-xs">(untuk template pesan WA)</span></label>
+                    <label>Nama Lembaga <span class="text-muted text-xs">(untuk konteks AI & template pesan WA)</span></label>
                     <input type="text" class="form-control" id="org-name" placeholder="Yayasan Amil Zakat...">
                 </div>
-                <button class="btn btn-primary" id="btn-save-ai">
-                    <i class="fa-solid fa-floppy-disk"></i> Simpan Pengaturan AI
-                </button>
+                <div class="d-flex gap-2 flex-wrap mt-3">
+                    <button class="btn btn-primary" id="btn-save-ai">
+                        <i class="fa-solid fa-floppy-disk"></i> Simpan Pengaturan AI
+                    </button>
+                    <button class="btn btn-ghost" id="btn-test-ai">
+                        <i class="fa-solid fa-bolt"></i> Uji Koneksi AI
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -457,38 +490,39 @@
                     <thead>
                         <tr>
                             <th width="3%"><input type="checkbox" id="report-select-all" title="Pilih Semua"></th>
-                            <th width="4%">No</th>
-                            <th width="10%" class="th-sortable" data-sort="date">
+                            <th width="3%">No</th>
+                            <th width="9%" class="th-sortable" data-sort="date">
                                 <div class="th-inner">
                                     <span>Tanggal</span>
                                     <i class="fa-solid fa-sort-down sort-icon active" id="sort-icon-date"></i>
                                 </div>
                             </th>
-                            <th width="12%" class="th-sortable" data-sort="amount">
+                            <th width="11%" class="th-sortable" data-sort="amount">
                                 <div class="th-inner">
                                     <span>Nominal (Rp)</span>
                                     <i class="fa-solid fa-sort sort-icon" id="sort-icon-amount"></i>
                                 </div>
                             </th>
-                            <th width="23%" class="th-sortable" data-sort="label">
+                            <th width="20%" class="th-sortable" data-sort="label">
                                 <div class="th-inner">
                                     <span>Keterangan Mutasi &amp; Donatur</span>
                                     <i class="fa-solid fa-sort sort-icon" id="sort-icon-label"></i>
                                 </div>
                             </th>
-                            <th width="19%" class="th-sortable" data-sort="coa">
+                            <th width="16%" class="th-sortable" data-sort="coa">
                                 <div class="th-inner">
                                     <span>Alokasi COA</span>
                                     <i class="fa-solid fa-sort sort-icon" id="sort-icon-coa"></i>
                                 </div>
                             </th>
-                            <th width="14%">Layer &amp; AI Rationale</th>
-                            <th width="8%">Status</th>
-                            <th width="7%">Aksi</th>
+                            <th width="10%">Layer</th>
+                            <th width="18%">Alasan Prediksi</th>
+                            <th width="5%">Status</th>
+                            <th width="5%">Aksi</th>
                         </tr>
                     </thead>
                     <tbody id="transactions-tbody">
-                        <tr><td colspan="9" class="empty-state">Belum ada data. Upload mutasi bank terlebih dahulu.</td></tr>
+                        <tr><td colspan="10" class="empty-state">Belum ada data. Upload mutasi bank terlebih dahulu.</td></tr>
                     </tbody>
                 </table>
             </div>

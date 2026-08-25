@@ -1,5 +1,5 @@
-﻿import { cleanTransactionText } from "./sanitizer.js";
-import { classifySemanticClient } from "./ai_matcher.js";
+import { cleanTransactionText } from "./sanitizer.js";
+import { classifySemanticClient, classifySemanticBatchClient } from "./ai_matcher.js";
 
 function round4(value) {
   return Math.round(value * 10000) / 10000;
@@ -173,13 +173,193 @@ export async function classifyBatch(rows, master, onProgress) {
     return [];
   }
   
+  const { settings, coaList, programs, donors } = master;
+  const defaultUnauthorizedCoa = settings.defaultUnauthorizedCoa;
+  const defaultBaselineCoa = settings.defaultBaselineCoa;
+  const expenseCoa = settings.expenseCoa;
   const results = [];
+  const needsAi = [];
+
+  // Pass 1: Local Rule-Based (Layer 0, 1, 2, 3, ORG_ALIAS) — Runs instantly for all rows
   for (let i = 0; i < rows.length; i++) {
-    const result = await classifySingle(rows[i], master);
-    results.push(result);
-    if (onProgress) {
-      onProgress(i + 1, rows.length, result);
+    const tx = rows[i];
+    const item = {
+      id: tx.id,
+      rawDate: tx.rawDate,
+      transactionDate: tx.rawDate,
+      rawLabel: tx.rawLabel,
+      rawAmount: tx.rawAmount,
+      partner: tx.partner,
+      cleanedLabel: '',
+      extractedSenderName: null,
+      assignedCoa: 0,
+      assignedCoaName: '',
+      assignedProgramId: null,
+      matchedLayer: '',
+      confidence: 0,
+      reasoning: '',
+      isExpense: false,
+      isOverridden: false
+    };
+
+    const { cleanedLabel, extractedSenderName, companyAliasMatched } = cleanTransactionText(tx.rawLabel, master.companyAliases || []);
+    item.cleanedLabel = cleanedLabel;
+    item.extractedSenderName = extractedSenderName;
+    item.companyAliasMatched = companyAliasMatched;
+
+    const cleanedLower = cleanedLabel.toLowerCase();
+    const rawLower = String(tx.rawLabel || '').toLowerCase();
+
+    // Layer 0: Expense
+    if (tx.rawAmount < 0 || rawLower.includes('trf ke') || rawLower.includes('biaya')) {
+      item.assignedCoa = expenseCoa;
+      item.assignedCoaName = coaList.find(c => c.code === expenseCoa)?.name || '';
+      item.assignedProgramId = null;
+      item.matchedLayer = 'EXPENSE';
+      item.confidence = 1.0;
+      item.reasoning = 'Terdeteksi sebagai transaksi pengeluaran/beban (nominal negatif atau biaya operasional)';
+      item.isExpense = true;
+      results.push(item);
+      continue;
+    }
+
+    // Layer 1: Campaign Tail Code
+    const s = String(Math.trunc(Math.abs(tx.rawAmount)));
+    let tailMatched = false;
+    for (const prog of programs) {
+      if (prog.tailCode && s.endsWith(prog.tailCode) && s.length >= prog.tailCode.length) {
+        item.assignedCoa = prog.coaCode;
+        item.assignedCoaName = coaList.find(c => c.code === prog.coaCode)?.name || '';
+        item.assignedProgramId = prog.id;
+        item.matchedLayer = 'CAMPAIGN_TAIL';
+        item.confidence = 0.95;
+        item.reasoning = `Nominal berakhiran kode unik kampanye '${prog.tailCode}' untuk program ${prog.name}`;
+        tailMatched = true;
+        break;
+      }
+    }
+    if (tailMatched) {
+      results.push(item);
+      continue;
+    }
+
+    // Layer 2: Registered Donor
+    if (extractedSenderName) {
+      let matchedDonor = null;
+      const senderNameLower = extractedSenderName.toLowerCase();
+      for (const donor of donors) {
+        const donorName = donor.name.toLowerCase();
+        if (donorName === senderNameLower || donorName.includes(senderNameLower) || senderNameLower.includes(donorName)) {
+          matchedDonor = donor;
+          break;
+        }
+      }
+      if (matchedDonor) {
+        let targetCoa = matchedDonor.defaultProgramId
+          ? (programs.find(p => p.id === matchedDonor.defaultProgramId)?.coaCode || defaultBaselineCoa)
+          : defaultBaselineCoa;
+        let targetProgram = matchedDonor.defaultProgramId || null;
+
+        for (const prog of programs) {
+          for (const k of prog.keywords) {
+            const ktrimmed = k?.trim().toLowerCase();
+            if (ktrimmed && cleanedLower.includes(ktrimmed)) {
+              targetCoa = prog.coaCode;
+              targetProgram = prog.id;
+              break;
+            }
+          }
+        }
+
+        item.assignedCoa = targetCoa;
+        item.assignedCoaName = coaList.find(c => c.code === targetCoa)?.name || '';
+        item.assignedProgramId = targetProgram;
+        item.matchedLayer = 'DONATUR_TETAP';
+        item.confidence = 0.90;
+        item.reasoning = `Pengirim terdaftar sebagai Donatur Tetap: ${matchedDonor.name}`;
+        results.push(item);
+        continue;
+      }
+    }
+
+    // Layer 3: Keyword Match
+    let keywordMatched = false;
+    for (const prog of programs) {
+      for (const k of prog.keywords) {
+        const ktrimmed = k?.trim().toLowerCase();
+        if (ktrimmed && cleanedLower.includes(ktrimmed)) {
+          item.assignedCoa = prog.coaCode;
+          item.assignedCoaName = coaList.find(c => c.code === prog.coaCode)?.name || '';
+          item.assignedProgramId = prog.id;
+          item.matchedLayer = 'KEYWORD';
+          item.confidence = 0.90;
+          item.reasoning = `Deskripsi cocok dengan kata kunci '${ktrimmed}' pada program ${prog.name}`;
+          keywordMatched = true;
+          break;
+        }
+      }
+      if (keywordMatched) break;
+    }
+    if (keywordMatched) {
+      results.push(item);
+      continue;
+    }
+
+    // Collect for AI Semantic Match (Layer 4)
+    results.push(item);
+    if (cleanedLabel.trim()) {
+      needsAi.push(item);
     }
   }
+
+  // Pass 2: Batch AI Semantic Match (Layer 4) — Process in chunks of 15
+  if (settings.aiMode !== 'OFF' && needsAi.length > 0) {
+    const BATCH_SIZE = 15;
+    for (let b = 0; b < needsAi.length; b += BATCH_SIZE) {
+      const chunk = needsAi.slice(b, b + BATCH_SIZE);
+      const aiPredictions = await classifySemanticBatchClient(chunk, programs, settings);
+      
+      for (const pred of aiPredictions) {
+        const targetItem = chunk.find(it => it.id === pred.id);
+        if (targetItem && pred.confidence >= settings.confidenceThreshold) {
+          targetItem.assignedCoa = pred.coa;
+          targetItem.assignedCoaName = coaList.find(c => c.code === pred.coa)?.name || '';
+          targetItem.assignedProgramId = pred.programId;
+          targetItem.matchedLayer = 'AI_SEMANTIC';
+          targetItem.confidence = round4(pred.confidence);
+          targetItem.reasoning = pred.reason;
+        }
+      }
+      if (onProgress) {
+        onProgress(Math.min(b + BATCH_SIZE, rows.length), rows.length);
+      }
+    }
+  }
+
+  // Pass 3: Final Fallback for unassigned rows
+  for (const item of results) {
+    if (!item.matchedLayer) {
+      if (item.companyAliasMatched && !item.cleanedLabel.trim()) {
+        item.assignedCoa = defaultBaselineCoa;
+        item.assignedCoaName = coaList.find(c => c.code === defaultBaselineCoa)?.name || '';
+        item.assignedProgramId = null;
+        item.matchedLayer = 'ORG_ALIAS';
+        item.confidence = 0.5;
+        item.reasoning = 'Mutasi hanya berisi nama lembaga/alias → dialokasikan ke Infak Umum';
+      } else {
+        item.assignedCoa = defaultUnauthorizedCoa;
+        item.assignedCoaName = coaList.find(c => c.code === defaultUnauthorizedCoa)?.name || '';
+        item.assignedProgramId = null;
+        item.matchedLayer = 'UNAUTHORIZED_FALLBACK';
+        item.confidence = 0.0;
+        item.reasoning = 'Tidak ditemukan kata kunci atau identitas donatur (Karantina Mutasi Buta / Unauthorized)';
+      }
+    }
+  }
+
+  if (onProgress) {
+    onProgress(rows.length, rows.length);
+  }
+
   return results;
 }

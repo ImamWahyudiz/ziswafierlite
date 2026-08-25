@@ -1,5 +1,6 @@
 import { getMaster, updateMaster, resetToDefaults, subscribe as subscribeMaster, exportConfigToJson, importConfigFromJson, importMasterFromExcel, addCoa, updateCoa, deleteCoa, addProgram, updateProgram, deleteProgram, addDonor, updateDonor, deleteDonor, addAlias, deleteAlias } from "./store/master_store.js";
 import { classifyBatch } from "./engine/classifier.js";
+import { testAIConnection } from "./engine/ai_matcher.js";
 import { parseBankStatement, exportOdooExcel, exportOdooCsv } from "./services/excel_adapter.js";
 import {
   getRows, getRowCount, setRows, mergeRows, updateRow, bulkUpdateRows, clearRows,
@@ -423,7 +424,8 @@ document.getElementById('alias-list').addEventListener('click', e => {
 function renderAiSettings(m) {
   const s = m.settings || {};
   document.getElementById('ai-mode').value = s.aiMode || 'OFF';
-  document.getElementById('ai-api-key').value = '';
+  document.getElementById('ai-model-name').value = s.aiModelName || '';
+  document.getElementById('ai-api-key').value = s.aiApiKey || '';
   document.getElementById('ollama-endpoint').value = s.ollamaEndpoint || 'http://localhost:11434/api/chat';
   document.getElementById('confidence-threshold').value = s.confidenceThreshold ?? 0.70;
   document.getElementById('org-name').value = s.orgName || '';
@@ -431,20 +433,63 @@ function renderAiSettings(m) {
 }
 
 function toggleAiFields(mode) {
-  document.getElementById('group-api-key').classList.toggle('hidden', mode === 'OFF' || mode === 'LOCAL_OLLAMA');
-  document.getElementById('group-ollama-endpoint').classList.toggle('hidden', mode !== 'LOCAL_OLLAMA');
+  const isOff = mode === 'OFF';
+  const isOllama = mode === 'LOCAL_OLLAMA';
+  const modelEl = document.getElementById('ai-model-name');
+  
+  document.getElementById('group-ai-model').classList.toggle('hidden', isOff);
+  document.getElementById('group-api-key').classList.toggle('hidden', isOff || isOllama);
+  document.getElementById('group-ollama-endpoint').classList.toggle('hidden', !isOllama);
+
+  if (modelEl) {
+    if (mode === 'GEMINI') {
+      modelEl.placeholder = 'gemini-2.0-flash';
+    } else if (mode === 'OPENAI') {
+      modelEl.placeholder = 'gpt-4o-mini';
+    } else if (mode === 'LOCAL_OLLAMA') {
+      modelEl.placeholder = 'qwen2.5:3b-instruct';
+    }
+  }
 }
 
 document.getElementById('ai-mode').addEventListener('change', e => toggleAiFields(e.target.value));
 
 document.getElementById('btn-save-ai').addEventListener('click', () => {
   const aiMode = document.getElementById('ai-mode').value;
-  const aiApiKey = document.getElementById('ai-api-key').value;
+  const aiModelName = document.getElementById('ai-model-name').value.trim();
+  const aiApiKey = document.getElementById('ai-api-key').value.trim();
   const ollamaEndpoint = document.getElementById('ollama-endpoint').value.trim();
   const confidenceThreshold = parseFloat(document.getElementById('confidence-threshold').value);
   const orgName = document.getElementById('org-name').value.trim();
-  updateMaster({ settings: { ...getMaster().settings, aiMode, aiApiKey, ollamaEndpoint, confidenceThreshold, orgName } });
-  showToast('Pengaturan AI disimpan', 'success');
+  updateMaster({ settings: { ...getMaster().settings, aiMode, aiModelName, aiApiKey, ollamaEndpoint, confidenceThreshold, orgName } });
+  showToast('Pengaturan AI berhasil disimpan', 'success');
+});
+
+document.getElementById('btn-test-ai')?.addEventListener('click', async () => {
+  const aiMode = document.getElementById('ai-mode').value;
+  const aiModelName = document.getElementById('ai-model-name').value.trim();
+  const aiApiKey = document.getElementById('ai-api-key').value.trim();
+  const ollamaEndpoint = document.getElementById('ollama-endpoint').value.trim();
+  
+  if (aiMode === 'OFF') {
+    showToast('Pilih provider AI (GEMINI / OPENAI / LOCAL OLLAMA) terlebih dahulu.', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btn-test-ai');
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Menguji...';
+  
+  try {
+    const res = await testAIConnection({ aiMode, aiModelName, aiApiKey, ollamaEndpoint });
+    showToast(`✅ Koneksi AI Berhasil! Provider: ${res.provider} (${res.model})`, 'success');
+  } catch (err) {
+    showToast(`❌ Uji Koneksi Gagal: ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+  }
 });
 
 // — System COA Settings —
@@ -728,15 +773,22 @@ async function processFile(file, merge) {
     parsed.sort((a, b) => b.rawAmount - a.rawAmount);
     const master = getMaster();
 
-    const classified = await classifyBatch(parsed, master, (current, total, row) => {
+    const classified = await classifyBatch(parsed, master, (current, total) => {
       const p = Math.round((current / total) * 100);
       fill.style.width = p + '%';
       pct.textContent = p + '%';
       label.textContent = `Memproses ${current} / ${total}`;
+    });
+
+    // Update layer counters
+    classified.forEach(row => {
       if (row?.matchedLayer && layerCounts[row.matchedLayer] !== undefined) {
         layerCounts[row.matchedLayer]++;
-        document.getElementById(`lc-${row.matchedLayer}`).textContent = layerCounts[row.matchedLayer];
       }
+    });
+    Object.keys(layerCounts).forEach(k => {
+      const el = document.getElementById(`lc-${k}`);
+      if (el) el.textContent = layerCounts[k];
     });
 
     let added = classified.length;
@@ -1015,7 +1067,7 @@ function renderTable() {
 
   const tbody = document.getElementById('transactions-tbody');
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="9" class="empty-state">${total === 0 && getRowCount() === 0 ? 'Belum ada data. Upload mutasi bank terlebih dahulu.' : 'Tidak ada data sesuai filter.'}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="empty-state">${total === 0 && getRowCount() === 0 ? 'Belum ada data. Upload mutasi bank terlebih dahulu.' : 'Tidak ada data sesuai filter.'}</td></tr>`;
   } else {
     const coaOptions = master.coaList.map(c => `<option value="${c.code}">${esc(c.code)} - ${esc(c.name)}</option>`).join('');
     tbody.innerHTML = rows.map((row, i) => {
@@ -1042,6 +1094,7 @@ function renderTable() {
       const coaTooltip = `No. Akun: ${row.assignedCoa || '-'}\nNama Akun: ${row.newName || '-'}\nProgram: ${prog?.name || '-'}`;
       const rationaleTooltip = `Layer: ${row.matchedLayer || 'MANUAL'}\nKeyakinan AI: ${row.confidence != null ? (row.confidence * 100).toFixed(0) + '%' : '-'}\nAlasan: ${row.reasoning || '-'}`;
       const labelTooltip = `Keterangan: ${row.rawLabel || '-'}\nPengirim: ${row.extractedSenderName || '-'}`;
+      const reasonDisplay = row.reasoning || (row.matchedLayer === 'UNAUTHORIZED_FALLBACK' ? 'Tidak cocok kriteria (Unauthorized)' : '-');
 
       if (isCompact) {
         return `<tr class="${_selectedIds.has(row.id) ? 'row-selected' : ''}">
@@ -1066,6 +1119,9 @@ function renderTable() {
               ${row.confidence != null && row.matchedLayer === 'AI_SEMANTIC' ? `<span class="conf-badge">${(row.confidence * 100).toFixed(0)}%</span>` : ''}
             </div>
           </td>
+          <td class="text-xs table-reasoning-cell" data-tooltip="${esc(reasonDisplay)}">
+            <div class="truncate-1 text-muted">${esc(reasonDisplay)}</div>
+          </td>
           <td class="nowrap">${statusBadge}</td>
           <td class="nowrap">${waBtn}</td>
         </tr>`;
@@ -1087,7 +1143,9 @@ function renderTable() {
           </td>
           <td class="text-xs">
             <div class="fw-semibold">${layerBadge}${row.confidence != null && row.matchedLayer === 'AI_SEMANTIC' ? ` <span class="conf-badge">${(row.confidence * 100).toFixed(0)}%</span>` : ''}</div>
-            ${row.reasoning ? `<div class="text-muted text-xs mt-1 truncate-1" data-tooltip="${esc(row.reasoning)}">${esc(row.reasoning)}</div>` : ''}
+          </td>
+          <td class="text-xs table-reasoning-cell">
+            <div class="text-muted reasoning-full">${esc(reasonDisplay)}</div>
           </td>
           <td class="nowrap">${statusBadge}</td>
           <td class="nowrap">${waBtn}</td>
