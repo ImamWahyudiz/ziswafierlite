@@ -11,6 +11,21 @@ function round4(value) {
 }
 
 /**
+ * Strips common Indonesian honorifics/salutations from a name so that
+ * "Pak Budi", "Bapak Budi", "Bu Chelsi", "Ibu Chelsi", "H. Ahmad", "Hj. Siti"
+ * all normalise to the bare name for matching.
+ */
+const HONORIFIC_RE = /^\s*(?:bapak|pak|ibu|bu|dr\.?|drs\.?|prof\.?|hj?\.?|ustaz(?:ah)?|ust\.?|kh\.?|mrs?\.?|miss|ms\.?)\s+/i;
+function stripHonorific(name) {
+  if (!name) return name;
+  // Strip repeatedly in case of stacked titles, e.g. "Bapak H. Budi"
+  let s = name.trim();
+  let prev;
+  do { prev = s; s = s.replace(HONORIFIC_RE, '').trim(); } while (s !== prev);
+  return s;
+}
+
+/**
  * Classifies a single transaction row
  */
 export async function classifySingle(tx, master) {
@@ -78,10 +93,17 @@ export async function classifySingle(tx, master) {
   // Layer 3: Donatur Tetap (Registered Donor)
   if (extractedSenderName) {
     let matchedDonor = null;
+    const senderBare = stripHonorific(extractedSenderName).toLowerCase();
     const senderNameLower = extractedSenderName.toLowerCase();
     for (const donor of donors) {
-      const donorName = donor.name.toLowerCase();
-      if (donorName === senderNameLower || donorName.includes(senderNameLower) || senderNameLower.includes(donorName)) {
+      const donorBare = stripHonorific(donor.name).toLowerCase();
+      const donorFull = donor.name.toLowerCase();
+      if (
+        donorBare === senderBare ||
+        donorFull === senderNameLower ||
+        donorBare.includes(senderBare) ||
+        senderBare.includes(donorBare)
+      ) {
         matchedDonor = donor;
         break;
       }
@@ -302,10 +324,17 @@ export async function classifyBatch(rows, master, onProgress) {
     let donorMatched = false;
     if (extractedSenderName) {
       let matchedDonor = null;
+      const senderBare = stripHonorific(extractedSenderName).toLowerCase();
       const senderNameLower = extractedSenderName.toLowerCase();
       for (const donor of donors) {
-        const donorName = donor.name.toLowerCase();
-        if (donorName === senderNameLower || donorName.includes(senderNameLower) || senderNameLower.includes(donorName)) {
+        const donorBare = stripHonorific(donor.name).toLowerCase();
+        const donorFull = donor.name.toLowerCase();
+        if (
+          donorBare === senderBare ||
+          donorFull === senderNameLower ||
+          donorBare.includes(senderBare) ||
+          senderBare.includes(donorBare)
+        ) {
           matchedDonor = donor;
           break;
         }

@@ -25,12 +25,14 @@
                 }
                 var css = '';
                 if (savedPage === 'dashboard') {
-                    css += '#page-config, #page-upload { display: none !important; } #page-dashboard { display: block !important; } #step-config { background: transparent !important; color: var(--text-muted) !important; } #step-dashboard { background: var(--surface2) !important; color: var(--accent) !important; }';
+                    css += '#page-config, #page-upload { display: none !important; } #page-dashboard { display: block !important; } #step-dashboard { opacity: 1 !important; } #step-config { opacity: 0.5 !important; }';
                 } else if (savedPage === 'upload') {
-                    css += '#page-config, #page-dashboard { display: none !important; } #page-upload { display: block !important; } #step-config { background: transparent !important; color: var(--text-muted) !important; } #step-upload { background: var(--surface2) !important; color: var(--accent) !important; }';
+                    css += '#page-config, #page-dashboard { display: none !important; } #page-upload { display: block !important; } #step-upload { opacity: 1 !important; } #step-config { opacity: 0.5 !important; }';
                 } else {
                     css += '#page-upload, #page-dashboard { display: none !important; } #page-config { display: block !important; }';
                 }
+                // Mark active step immediately via attribute to avoid needing class manipulation
+                document.documentElement.setAttribute('data-active-step', savedPage);
 
                 var savedSubtab = localStorage.getItem('ziswaf_active_subtab');
                 if (savedSubtab && savedSubtab !== 'coa') {
@@ -93,7 +95,7 @@
             </div>
         </a>
         <nav class="stepper" id="stepper">
-            <button class="step-btn active" data-page="config" id="step-config">
+            <button class="step-btn" data-page="config" id="step-config">
                 <span class="step-num">1</span>
                 <span class="step-label">Konfigurasi</span>
             </button>
