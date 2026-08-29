@@ -1231,7 +1231,7 @@ function renderDashboard() {
   const isUnauthorized = filter.filterCategory === 'UNAUTHORIZED';
   const btnRescanToolbar = document.getElementById('btn-rescan-unauthorized');
   if (btnRescanToolbar) {
-    btnRescanToolbar.classList.toggle('hidden', !isUnauthorized);
+    btnRescanToolbar.classList.toggle('hidden', unauthorized === 0 && !isUnauthorized);
   }
 
   renderCharts(periodRows);
@@ -1640,14 +1640,14 @@ function updateSelectionBanner() {
     banner.classList.remove('hidden');
     badge.textContent = `${validCount.toLocaleString('id-ID')} transaksi dicentang`;
 
-    // Tombol "Infak Umum" & "Rescan 5-Layer" hanya muncul jika memfilter status UNAUTHORIZED
+    // Tombol "Infak Umum" hanya jika filter UNAUTHORIZED, sedangkan "Rescan 5-Layer" selalu bisa dipakai
     const filter = getFilter();
     const isUnauthorized = filter.filterCategory === 'UNAUTHORIZED';
     if (btnBulkGeneral) {
       btnBulkGeneral.classList.toggle('hidden', !isUnauthorized);
     }
     if (btnBulkRescan) {
-      btnBulkRescan.classList.toggle('hidden', !isUnauthorized);
+      btnBulkRescan.classList.remove('hidden');
     }
   } else {
     banner.classList.add('hidden');

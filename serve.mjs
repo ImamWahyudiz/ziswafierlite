@@ -53,7 +53,12 @@ const server = createServer(async (req, res) => {
     const st = await stat(file);
     const target = st.isDirectory() ? join(file, "index.html") : file;
     const body = await readFile(target);
-    res.writeHead(200, { "Content-Type": MIME[extname(target).toLowerCase()] || "application/octet-stream" });
+    res.writeHead(200, {
+      "Content-Type": MIME[extname(target).toLowerCase()] || "application/octet-stream",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Pragma": "no-cache",
+      "Expires": "0"
+    });
     res.end(body);
   } catch {
     res.writeHead(404); res.end("Not Found");
