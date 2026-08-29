@@ -64,6 +64,9 @@ function init() {
       const parsed = JSON.parse(stored);
       if (parsed.coaList && parsed.programs) {
         state = deepClone(parsed);
+        if (Array.isArray(state.programs)) {
+          state.programs = state.programs.filter(p => !String(p.id).startsWith("BASELINE_"));
+        }
       }
     }
   } catch (e) {
@@ -79,12 +82,6 @@ export const SPECIAL_ACCOUNTS = [
   { code: 40201001, name: "Penerimaan Infak & Sedekah Tanpa Pembatasan - Umum", category: "UMUM" },
   { code: 60100008, name: "Beban Lain-Lain (Pengeluaran Bank)", category: "UMUM" },
   { code: 40100000, name: "Penerimaan Zakat Tanpa Pembatasan - Baseline", category: "UMUM" }
-];
-
-export const SPECIAL_PROGRAMS = [
-  { id: "BASELINE_UNAUTHORIZED", name: "Baseline - Unauthorized", coaCode: 40100000, tailCode: "001", keywords: ["zakat", "baseline"], description: "Program baseline untuk penerimaan belum diotorisasi" },
-  { id: "BASELINE_ZAKAT", name: "Baseline Zakat", coaCode: 40100000, tailCode: "002", keywords: ["zakat", "baseline"], description: "Program baseline Zakat" },
-  { id: "BASELINE_INFAK", name: "Baseline Infak", coaCode: 40201000, tailCode: "003", keywords: ["infak", "baseline"], description: "Program baseline Infak" }
 ];
 
 export function getSystemCodes(m) {
@@ -477,23 +474,12 @@ export function importMasterFromExcel(workbook, mode = 'merge', targetEntity = n
 
     if (parsedPrograms.length > 0) {
       if (mode === 'replace') {
-        const newPrograms = [...parsedPrograms];
-        SPECIAL_PROGRAMS.forEach(special => {
-          if (!newPrograms.some(p => p.id === special.id)) {
-            newPrograms.push({ ...special });
-          }
-        });
-        state.programs = newPrograms;
+        state.programs = [...parsedPrograms];
         programCount = parsedPrograms.length;
       } else {
         // Merge mode
         const existingMap = new Map(state.programs.map(p => [p.id, p]));
         parsedPrograms.forEach(p => existingMap.set(p.id, p));
-        SPECIAL_PROGRAMS.forEach(special => {
-          if (!existingMap.has(special.id)) {
-            existingMap.set(special.id, { ...special });
-          }
-        });
         state.programs = Array.from(existingMap.values());
         programCount = parsedPrograms.length;
       }
@@ -801,11 +787,6 @@ export function importConfigFromJson(jsonStr, mode = 'replace') {
         keywords: Array.isArray(p.keywords) ? p.keywords.map(k => sanitizeInputText(k, 50)).filter(Boolean) : [],
         description: sanitizeInputText(p.description, 500)
       })).filter(p => p.id && p.name);
-      SPECIAL_PROGRAMS.forEach(special => {
-        if (!newState.programs.some(p => p.id === special.id)) {
-          newState.programs.push({ ...special });
-        }
-      });
     }
     if (Array.isArray(parsed.donors)) {
       newState.donors = parsed.donors.map(d => ({

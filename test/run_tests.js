@@ -156,8 +156,9 @@ await ok("importMasterFromExcel support replace mode", () => {
   store.importMasterFromExcel(wb, 'replace');
   const m = store.getMaster();
   assert.ok(m.programs.some(p => p.id === 'prog-unique-only'));
-  // Special baseline programs must still be kept
-  assert.ok(m.programs.some(p => p.id === 'BASELINE_ZAKAT'));
+  // No artificial baseline programs should be injected
+  assert.strictEqual(m.programs.length, 1);
+  assert.ok(!m.programs.some(p => p.id === 'BASELINE_ZAKAT'));
 });
 
 await ok("importConfigFromJson roundtrip export & import (replace & merge)", () => {
