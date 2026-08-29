@@ -1456,8 +1456,14 @@ textarea.form-control {
 .modal-footer-actions {
     display: flex;
     justify-content: flex-end;
+    align-items: center;
+    flex-wrap: wrap;
     gap: 0.75rem;
     margin-top: 1.5rem;
+}
+
+.modal-footer-actions .btn {
+    flex-shrink: 0;
 }
 
 

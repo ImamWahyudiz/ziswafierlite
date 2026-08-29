@@ -756,9 +756,9 @@ document.getElementById('btn-test-ai')?.addEventListener('click', async () => {
   
   try {
     const res = await testAIConnection({ aiMode, aiModelName, aiApiKey, ollamaEndpoint });
-    showToast(`✅ Koneksi AI Berhasil! Provider: ${res.provider} (${res.model})`, 'success');
+    showToast(`✅ Koneksi AI Berhasil! [${res.provider} | ${res.model}] Latency: ${res.latency}ms. Hasil uji: ${res.programId || 'Program Terdeteksi'} (COA ${res.coa})`, 'success', 5000);
   } catch (err) {
-    showToast(`❌ Uji Koneksi Gagal: ${err.message}`, 'error');
+    showToast(`❌ Uji Koneksi Gagal: ${err.message}`, 'error', 6000);
   } finally {
     btn.disabled = false;
     btn.innerHTML = originalHtml;

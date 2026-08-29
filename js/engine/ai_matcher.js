@@ -425,31 +425,42 @@ export async function testAIConnection(settings) {
   ];
   const testItem = [{ id: 'test_1', cleanedLabel: 'Zakat penghasilan bulanan' }];
 
-  const startTime = Date.now();
-  try {
-    resetCircuitBreaker();
-    const results = await classifySemanticBatchClient(testItem, dummyPrograms, settings, true);
-    const latency = Date.now() - startTime;
-    const res = results && results[0];
+  const provider = (settings.aiMode || 'OFF').toUpperCase();
+  let resolvedModel = (settings.aiModelName || '').trim();
+  if (!resolvedModel) {
+    if (provider === 'GEMINI' || provider === 'GOOGLE_GEMINI') resolvedModel = 'gemini-2.0-flash';
+    else if (provider === 'LOCAL_OLLAMA' || provider === 'OLLAMA') resolvedModel = 'qwen2.5:3b-instruct';
+    else if (provider === 'GROQ') resolvedModel = 'llama-3.3-70b-versatile';
+    else if (provider === 'OPENROUTER') resolvedModel = 'qwen/qwen-2.5-72b-instruct';
+    else resolvedModel = 'gpt-4o-mini';
+  }
 
-    if (res && res.confidence > 0) {
-      return {
-        ok: true,
-        message: `Koneksi berhasil (${latency}ms). Prediksi: ${res.programId || 'Program Terdeteksi'} (COA: ${res.coa}, Keyakinan: ${Math.round(res.confidence * 100)}%)`,
-        latency
-      };
-    } else {
-      return {
-        ok: false,
-        message: `Koneksi tersambung (${latency}ms) tetapi model mengembalikan respons kosong atau confidence 0.`,
-        latency
-      };
-    }
+  const startTime = Date.now();
+  resetCircuitBreaker();
+  
+  let results;
+  try {
+    results = await classifySemanticBatchClient(testItem, dummyPrograms, settings, true);
   } catch (err) {
+    throw new Error(`Gagal menghubungi provider ${provider} (${resolvedModel}): ${err.message}`);
+  }
+
+  const latency = Date.now() - startTime;
+  const res = results && results[0];
+
+  if (res && res.confidence > 0) {
     return {
-      ok: false,
-      message: `Gagal terkoneksi: ${err.message}`,
-      latency: Date.now() - startTime
+      ok: true,
+      provider,
+      model: resolvedModel,
+      latency,
+      programId: res.programId,
+      coa: res.coa,
+      confidence: res.confidence,
+      reason: res.reason,
+      message: `Koneksi berhasil (${latency}ms). Hasil: ${res.programId || 'Program'} (COA: ${res.coa}, Keyakinan: ${Math.round(res.confidence * 100)}%)`
     };
+  } else {
+    throw new Error(`Provider ${provider} (${resolvedModel}) terhubung (${latency}ms) tetapi tidak mengembalikan klasifikasi valid (confidence 0 / kosong). Pastikan API Key dan nama model sudah benar.`);
   }
 }
