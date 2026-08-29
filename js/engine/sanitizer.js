@@ -34,6 +34,13 @@ export function cleanTransactionText(rawLabel, companyAliases) {
         const match4 = workingLabel.match(regex4);
         if (match4) {
           extractedSenderName = match4[2].trim();
+        } else {
+          // Pattern 5: "{MM/DD} {TRX-CODE} {Name}"  e.g. "02/07 Zn2W1 Abdul Ridwan" (BCA format)
+          const regex5 = /^\d{2}\/\d{2}\s+\S+\s+([A-Za-z][\w\s.,'-]{1,60})$/;
+          const match5 = workingLabel.match(regex5);
+          if (match5) {
+            extractedSenderName = match5[1].trim();
+          }
         }
       }
     }
