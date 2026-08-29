@@ -406,6 +406,16 @@ body {
     vertical-align: middle;
 }
 
+.data-table th:first-child,
+.data-table td:first-child {
+    width: 44px;
+    min-width: 44px;
+    max-width: 46px;
+    text-align: center;
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+}
+
 .data-table td.text-right {
     white-space: nowrap;
 }
