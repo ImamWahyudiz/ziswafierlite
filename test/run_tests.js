@@ -87,9 +87,15 @@ await ok("alias-only label -> 40201001 Umum (ORG_ALIAS)", async () => {
   assert.strictEqual(r.matchedLayer, "ORG_ALIAS");
   assert.strictEqual(r.assignedCoa, 40201001);
 });
-await ok("alias + other text -> still Unauthorized", async () => {
+await ok("alias + non-keyword text -> COMPANY_UMUM / ORG_ALIAS", async () => {
   const r = await classifySingle(tx(8, "Yayasan Amil Zakat Kebumen transfer dana", 100000), M);
-  assert.strictEqual(r.matchedLayer, "UNAUTHORIZED_FALLBACK");
+  assert.strictEqual(r.matchedLayer, "ORG_ALIAS");
+  assert.strictEqual(r.assignedCoa, 40201001);
+});
+await ok("alias + program keyword -> Layer 4 KEYWORD", async () => {
+  const r = await classifySingle(tx(81, "Yayasan Amil Zakat Kebumen Zakat Maal Bpk Fulan", 100000), M);
+  assert.strictEqual(r.matchedLayer, "KEYWORD");
+  assert.strictEqual(r.assignedCoa, 40100101);
 });
 await ok("name-only transfer from unregistered sender -> UNAUTHORIZED_FALLBACK (not Infak Umum)", async () => {
   const r = await classifySingle(tx(9, "TRF DARI - SITI FATIMAH", 250000), M);

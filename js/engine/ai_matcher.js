@@ -1,9 +1,16 @@
+/**
+ * AI Semantic Matcher - Browser Engine Port of app/engine/ai_matcher.py
+ * Supports: GOOGLE_GEMINI, LOCAL_OLLAMA, OPENAI, GROQ, OPENROUTER
+ * Features: Compact Flat-Table Prompt, Micro-Batching, In-Memory Label Cache, Circuit Breaker, JSON Sanitization
+ */
+
+// Circuit breaker tracking
 let consecutiveFailures = 0;
 let circuitOpen = false;
 let circuitOpenTime = 0;
-const CIRCUIT_THRESHOLD = 5;
-const CIRCUIT_TIMEOUT = 30000;
-const REQUEST_TIMEOUT = 15000; // 15 seconds for robust LLM latency
+const CIRCUIT_THRESHOLD = 3;
+const CIRCUIT_TIMEOUT_MS = 60000; // 60s cooldown
+const REQUEST_TIMEOUT_MS = 15000; // 15s timeout
 
 export function resetCircuitBreaker() {
   consecutiveFailures = 0;
@@ -11,214 +18,175 @@ export function resetCircuitBreaker() {
   circuitOpenTime = 0;
 }
 
-function buildBatchPrompt(items, programs) {
-  const programLines = programs
-    .map(p => {
-      const parts = [p.id, p.name, p.coaCode];
-      if (p.tailCode) parts.push(`Ekor:${p.tailCode}`);
-      if (p.keywords?.length) parts.push(`Keywords:${p.keywords.join(',')}`);
-      if (p.description) parts.push(`Desc:${p.description}`);
-      return parts.join(' | ');
-    })
-    .join('\n');
+// In-memory exact match cache for duplicate transaction texts within session
+const _aiLabelCache = new Map();
+const MAX_CACHE_SIZE = 2000;
 
-  const itemsJson = JSON.stringify(items.map(it => ({ id: it.id, label: it.cleanedLabel || it.rawLabel })));
+function trimCache() {
+  if (_aiLabelCache.size > MAX_CACHE_SIZE) {
+    const keys = Array.from(_aiLabelCache.keys()).slice(0, 300);
+    for (const k of keys) _aiLabelCache.delete(k);
+  }
+}
 
-  return `Anda adalah ahli akuntansi syariah Indonesia untuk klasifikasi dana ZISWAF (Zakat, Infak, Sedekah, DSKL, Wakaf).
-Tugas: Klasifikasikan setiap transaksi bank berikut ke dalam SATU program dan nomor COA yang paling relevan.
+export function clearAiCache() {
+  _aiLabelCache.clear();
+}
 
-Daftar program tersedia:
-${programLines}
+/**
+ * Compresses master program list into an ultra-compact flat text index (~150-200 tokens)
+ * Format: ID|COA|NAMA_PROGRAM|HINTS
+ */
+function formatCompactPrograms(programs) {
+  const lines = [];
+  for (const p of programs || []) {
+    const hints = [];
+    if (p.description) {
+      hints.push(p.description.slice(0, 80));
+    }
+    if (p.keywords && p.keywords.length > 0) {
+      hints.push(p.keywords.slice(0, 6).join(', '));
+    }
+    const hintStr = hints.join(' | ').replace(/\n/g, ' ').trim();
+    lines.push(`${p.id}|${p.coaCode}|${p.name}|${hintStr}`);
+  }
+  return lines.join('\n');
+}
 
-Daftar transaksi:
-${itemsJson}
+/**
+ * Builds the authentic syariah compact batch prompt from app/engine/ai_matcher.py
+ */
+function buildCompactPrompt(items, programs) {
+  const compactProgTable = formatCompactPrograms(programs);
+  const txLines = items.map((it, idx) => `${idx + 1}: "${it.cleanedLabel || it.rawLabel}"`);
+  const txBlock = txLines.join('\n');
 
-Instruksi:
-1. Analisis deskripsi transaksi dan cocokkan dengan program & COA yang paling relevan.
-2. JANGAN MENEBAK ke Infak Umum atau program lain jika transaksi HANYA berupa nama orang tanpa keterangan, atau hanya berupa kode transaksi/nomor referensi acak (seperti Z1Z91, TRX123, NOREF). Untuk transaksi tanpa keterangan atau kode acak, kembalikan confidence: 0.0 dan reason: "Tidak ada keterangan program (Unauthorized)".
-3. Dalam akuntansi syariah (PSAK 109), dana tanpa kejelasan niat/program dari donatur TIDAK BOLEH dialokasikan ke Infak Umum, melainkan harus masuk Unauthorized (Karantina).
-4. Pengetatan kata kunci: Jangan pernah mencocokkan kode singkatan acak (seperti Z1Z91) ke Zakat Maal hanya karena ada huruf Z. Cocokkan hanya jika kata kunci program memang tertulis jelas (seperti ZMAL, MAAL, ZAKAT).
-5. Pertimbangkan konteks syariah, istilah zakat/infak/sedekah/wakaf/dskl/fidyah/kurban/operasional.
-6. Kembalikan HANYA JSON murni berupa array objek [ {...}, {...} ] tanpa markdown backticks, tanpa penjelasan di luar JSON.
+  return `Kamu adalah asisten akuntansi syariah ZISWAF. Analisis teks mutasi donatur dan tentukan program yang paling cocok.
 
-Format setiap objek dalam array WAJIB persis seperti ini:
-{"id": "<id_transaksi>", "coa": <number>, "program_id": "<id_program>", "confidence": <0..1>, "reason": "<alasan singkat bahasa Indonesia>"}
+DAFTAR MASTER PROGRAM (ID|COA|NAMA_PROGRAM|HINTS):
+${compactProgTable}
 
-Contoh:
+TRANSAKSI UNTUK DIANALISIS:
+${txBlock}
+
+INSTRUKSI:
+1. Pahami maksud/sinonim konteks donasi (contoh: air/sumur/pipanisasi -> Sarana Air; lauk/nutrisi/konsumsi santri -> Gizi Santri; kewajiban harta 2.5%/nishab -> Zakat Maal; SPP/pendidikan -> Beasiswa; bencana alam/musibah -> Tanggap Bencana; obat/darurat medis -> Layanan Kesehatan; semen/bata/gedung -> Wakaf Fisik; domba/hewan ternak -> Qurban; tebusan puasa -> Fidyah).
+2. Jika tidak ada kecocokan atau keterangan terlalu samar/buta/acak, beri id_program: null, no_akun: 40201000, confidence: 0.0.
+3. Alasan/reason dibuat sangat singkat (maksimal 10 kata).
+4. Output HANYA JSON array murni tanpa markdown, format:
 [
-  {"id": "1", "coa": 40100101, "program_id": "prog-zkt-maal", "confidence": 0.95, "reason": "Transfer zakat profesi bulanan"},
-  {"id": "2", "coa": 40201001, "program_id": "prog-inf-umum", "confidence": 0.88, "reason": "Sedekah subuh harian"}
+  {"idx": 1, "id_program": "<id_program_atau_null>", "no_akun": <number>, "confidence": <float_0_sampai_1>, "reason": "<string ringkas>"}
 ]`;
 }
 
-function parseBatchAIResponse(text, programs) {
-  if (!text) return [];
-  let cleaned = text.trim();
-  cleaned = cleaned.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
-  const firstBracket = cleaned.indexOf('[');
-  const lastBracket = cleaned.lastIndexOf(']');
-  if (firstBracket === -1 || lastBracket === -1 || lastBracket <= firstBracket) {
-    return [];
-  }
-  const jsonStr = cleaned.slice(firstBracket, lastBracket + 1);
-  let parsed;
-  try {
-    parsed = JSON.parse(jsonStr);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
-
-  const results = [];
-  for (const item of parsed) {
-    if (!item || item.id === undefined) continue;
-    const coa = Number(item.coa);
-    const confidence = Number(item.confidence);
-    const programId = item.program_id || null;
-    if (!Number.isFinite(coa) || coa <= 0 || !Number.isInteger(coa)) continue;
-    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) continue;
-    if (!programId || !programs.some(p => p.id === programId)) continue;
-    const reason = String(item.reason || 'Diprediksi oleh Model AI').trim();
-    results.push({ id: item.id, coa, programId, confidence, reason });
-  }
-  return results;
-}
-
-function buildPrompt(cleanedLabel, programs) {
-  const programLines = programs
-    .map(p => {
-      const parts = [p.id, p.name, p.coaCode];
-      if (p.tailCode) parts.push(`Ekor:${p.tailCode}`);
-      if (p.keywords?.length) parts.push(`Keywords:${p.keywords.join(',')}`);
-      if (p.description) parts.push(`Desc:${p.description}`);
-      return parts.join(' | ');
-    })
-    .join('\n');
-
-  return `Anda adalah ahli akuntansi syariah Indonesia untuk klasifikasi dana ZISWAF (Zakat, Infak, Sedekah, DSKL, Wakaf).
-Tugas: Pilih SATU program dan nomor COA terbaik berdasarkan keterangan transaksi bank berikut.
-
-Deskripsi transaksi: "${cleanedLabel}"
-
-Daftar program tersedia:
-${programLines}
-
-Instruksi:
-1. Analisis deskripsi transaksi dan cocokkan dengan program & COA yang paling relevan.
-2. JANGAN MENEBAK ke Infak Umum atau program lain jika transaksi HANYA berupa nama orang tanpa keterangan, atau hanya berupa kode transaksi/nomor referensi acak (seperti Z1Z91, TRX123, NOREF). Untuk transaksi tanpa keterangan atau kode acak, kembalikan confidence: 0.0 dan reason: "Tidak ada keterangan program (Unauthorized)".
-3. Dalam akuntansi syariah (PSAK 109), dana tanpa kejelasan niat/program dari donatur TIDAK BOLEH dialokasikan ke Infak Umum, melainkan harus masuk Unauthorized (Karantina).
-4. Pengetatan kata kunci: Jangan pernah mencocokkan kode singkatan acak (seperti Z1Z91) ke Zakat Maal hanya karena ada huruf Z. Cocokkan hanya jika kata kunci program memang tertulis jelas (seperti ZMAL, MAAL, ZAKAT).
-5. Pertimbangkan konteks syariah, istilah zakat/infak/sedekah/wakaf/dskl.
-6. Berikan output JSON ONLY murni, tanpa markdown backticks, tanpa penjelasan di luar JSON.
-
-WAJIB output JSON dalam format PERSIS ini:
-{"coa": <number>, "program_id": "<id>", "confidence": <0..1>, "reason": "<alasan singkat bahasa Indonesia>"}
-
-Contoh: {"coa": 40100101, "program_id": "prog-zkt-maal", "confidence": 0.95, "reason": "Keterangan mengandung transfer zakat penghasilan bulanan"}`;
-}
-
-async function fetchWithTimeout(url, options, timeout = REQUEST_TIMEOUT) {
+async function fetchWithTimeout(url, options, timeout = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const timer = setTimeout(() => controller.abort(), timeout);
   try {
     const response = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(timeoutId);
+    clearTimeout(timer);
     return response;
-  } catch (error) {
-    clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
-      throw new Error(`Permintaan AI waktu habis (timeout ${timeout / 1000}s). Periksa koneksi internet.`);
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === 'AbortError') {
+      throw new Error(`Koneksi AI timeout (${timeout / 1000}s).`);
     }
-    throw error;
+    throw err;
   }
 }
 
-function parseAIResponse(text, programs) {
-  if (!text) return null;
-  let cleaned = text.trim();
-  cleaned = cleaned.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
-  const firstBrace = cleaned.indexOf('{');
-  const lastBrace = cleaned.lastIndexOf('}');
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-    return null;
+/**
+ * Strips markdown code blocks and repairs JSON text
+ */
+function cleanJsonResponse(rawText) {
+  if (!rawText) return '';
+  let text = String(rawText).trim();
+  text = text.replace(/^```(?:json)?\s*/gi, '').replace(/\s*```$/gi, '').trim();
+
+  // Find array [ ... ]
+  const startArr = text.indexOf('[');
+  if (startArr !== -1) {
+    const endArr = text.lastIndexOf(']');
+    if (endArr !== -1 && endArr > startArr) {
+      return text.slice(startArr, endArr + 1);
+    }
+    const lastBrace = text.lastIndexOf('}');
+    if (lastBrace !== -1 && lastBrace > startArr) {
+      return text.slice(startArr, lastBrace + 1) + '\n]';
+    }
   }
-  const jsonStr = cleaned.slice(firstBrace, lastBrace + 1);
-  let parsed;
+
+  // Find object { ... }
+  const startObj = text.indexOf('{');
+  if (startObj !== -1) {
+    const endObj = text.lastIndexOf('}');
+    if (endObj !== -1 && endObj > startObj) {
+      return `[${text.slice(startObj, endObj + 1)}]`;
+    }
+  }
+  return text;
+}
+
+function parseConfidence(val) {
   try {
-    parsed = JSON.parse(jsonStr);
+    let num = typeof val === 'string' ? parseFloat(val.replace('%', '').trim()) : Number(val);
+    if (isNaN(num)) return 0.0;
+    if (num > 1.0) num = num / 100.0;
+    return Math.max(0.0, Math.min(1.0, num));
   } catch {
-    return null;
+    return 0.0;
   }
-  const coa = Number(parsed.coa);
-  const confidence = Number(parsed.confidence);
-  const programId = parsed.program_id || null;
-  if (!Number.isFinite(coa) || coa <= 0 || !Number.isInteger(coa)) {
-    return null;
-  }
-  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
-    return null;
-  }
-  if (!programId || !programs.some(p => p.id === programId)) {
-    return null;
-  }
-  const reason = String(parsed.reason || 'Diprediksi oleh Model AI').trim();
-  return { coa, programId, confidence, reason };
 }
 
-function sanitizeGeminiModel(name) {
-  let m = String(name || 'gemini-2.0-flash').trim();
-  m = m.replace(/^\/?models\//i, '').trim();
-  m = m.replace(/\s+/g, '-');
-  m = m.toLowerCase();
-  return m || 'gemini-2.0-flash';
-}
-
-function sanitizeOpenAIModel(name) {
-  let m = String(name || 'gpt-4o-mini').trim();
-  m = m.replace(/\s+/g, '-');
-  m = m.toLowerCase();
-  return m || 'gpt-4o-mini';
-}
-
-function sanitizeOllamaModel(name) {
-  let m = String(name || 'qwen2.5:3b-instruct').trim();
-  return m || 'qwen2.5:3b-instruct';
-}
-
+/**
+ * Calls Ollama local endpoint
+ */
 async function callOllama(prompt, settings) {
-  const endpoint = (settings.ollamaEndpoint || 'http://localhost:11434/api/chat').trim();
-  const model = sanitizeOllamaModel(settings.aiModelName);
-  const response = await fetchWithTimeout(endpoint, {
+  const endpoint = (settings.ollamaEndpoint || 'http://localhost:11434').replace(/\/api\/(?:chat|generate)$/i, '').replace(/\/+$/, '');
+  const model = settings.aiModelName || 'qwen2.5:3b-instruct';
+  const url = `${endpoint}/api/generate`;
+
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: model,
-      messages: [{ role: 'user', content: prompt }],
-      stream: false
+      prompt: prompt,
+      stream: false,
+      format: 'json',
+      options: { temperature: 0.1, top_p: 0.9 }
     })
-  }, REQUEST_TIMEOUT);
+  }, REQUEST_TIMEOUT_MS);
+
   if (!response.ok) throw new Error(`Ollama Error HTTP ${response.status}: ${response.statusText}`);
   const json = await response.json();
-  return json.message?.content || '';
+  return json.response || '';
 }
 
+/**
+ * Calls Google Gemini Cloud API
+ */
 async function callGemini(prompt, settings) {
-  const model = sanitizeGeminiModel(settings.aiModelName);
   const apiKey = (settings.aiApiKey || '').trim();
-  if (!apiKey) throw new Error('API Key Gemini belum diisi. Masukkan API Key di tab Pengaturan AI.');
+  if (!apiKey) throw new Error('API Key Google Gemini belum diisi.');
+
+  let model = (settings.aiModelName || 'gemini-2.0-flash').trim().replace(/^\/?models\//i, '');
+  if (!model) model = 'gemini-2.0-flash';
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const payload = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      temperature: 0.1
+    }
+  };
+
   const response = await fetchWithTimeout(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': apiKey
-    },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.2 }
-    })
-  }, REQUEST_TIMEOUT);
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }, REQUEST_TIMEOUT_MS);
 
   if (!response.ok) {
     let errBody = '';
@@ -235,25 +203,50 @@ async function callGemini(prompt, settings) {
   return json.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
-async function callOpenAI(prompt, settings) {
-  const model = sanitizeOpenAIModel(settings.aiModelName);
+/**
+ * Calls OpenAI / Groq / OpenRouter API
+ */
+async function callOpenAICompatible(prompt, settings) {
   const apiKey = (settings.aiApiKey || '').trim();
-  if (!apiKey) throw new Error('API Key OpenAI belum diisi. Masukkan API Key di tab Pengaturan AI.');
+  if (!apiKey) throw new Error('API Key AI belum diisi.');
 
-  const url = 'https://api.openai.com/v1/chat/completions';
-  const response = await fetchWithTimeout(url, {
+  let endpoint = (settings.ollamaEndpoint || '').trim();
+  const mode = (settings.aiMode || '').toUpperCase();
+
+  if (mode === 'GROQ') {
+    endpoint = 'https://api.groq.com/openai/v1/chat/completions';
+  } else if (mode === 'OPENROUTER') {
+    endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+  } else if (!endpoint || mode === 'OPENAI') {
+    endpoint = 'https://api.openai.com/v1/chat/completions';
+  }
+
+  const model = settings.aiModelName || (mode === 'GROQ' ? 'llama-3.3-70b-versatile' : mode === 'OPENROUTER' ? 'qwen/qwen-2.5-72b-instruct' : 'gpt-4o-mini');
+
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${apiKey}`
+  };
+
+  if (endpoint.includes('openrouter.ai')) {
+    headers['HTTP-Referer'] = window.location.origin || 'http://localhost';
+    headers['X-Title'] = 'ZISWAF Classifier Lite';
+  }
+
+  const payload = {
+    model: model,
+    messages: [
+      { role: 'system', content: 'You are a financial classification assistant for Indonesian ZISWAF funds. Always respond with pure JSON array.' },
+      { role: 'user', content: prompt }
+    ],
+    temperature: 0.1
+  };
+
+  const response = await fetchWithTimeout(endpoint, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.2,
-      response_format: { type: "json_object" }
-    })
-  }, REQUEST_TIMEOUT);
+    headers: headers,
+    body: JSON.stringify(payload)
+  }, REQUEST_TIMEOUT_MS);
 
   if (!response.ok) {
     let errBody = '';
@@ -263,142 +256,200 @@ async function callOpenAI(prompt, settings) {
     } catch {
       errBody = response.statusText;
     }
-    throw new Error(`OpenAI API Error (${response.status}): ${errBody}`);
+    throw new Error(`AI Gateway Error (${response.status}): ${errBody}`);
   }
 
   const json = await response.json();
   return json.choices?.[0]?.message?.content || '';
 }
 
-export async function testAIConnection(settings) {
-  const mode = settings?.aiMode;
-  if (!mode || mode === 'OFF') {
-    throw new Error('Mode AI saat ini OFF. Pilih provider (GEMINI / OPENAI / LOCAL_OLLAMA) terlebih dahulu.');
-  }
-
-  const testPrompt = `Tes koneksi ZISWAF. Jawab JSON murni: {"status": "ok", "provider": "${mode}"}`;
-  let rawResponse = '';
-  let resolvedModel = '';
-
-  if (mode === 'GEMINI') {
-    resolvedModel = sanitizeGeminiModel(settings.aiModelName);
-    rawResponse = await callGemini(testPrompt, settings);
-  } else if (mode === 'OPENAI') {
-    resolvedModel = sanitizeOpenAIModel(settings.aiModelName);
-    rawResponse = await callOpenAI(testPrompt, settings);
-  } else if (mode === 'LOCAL_OLLAMA') {
-    resolvedModel = sanitizeOllamaModel(settings.aiModelName);
-    rawResponse = await callOllama(testPrompt, settings);
-  } else {
-    throw new Error(`Provider AI tidak dikenali: ${mode}`);
-  }
-
-  return {
-    ok: true,
-    provider: mode,
-    model: resolvedModel,
-    response: rawResponse
-  };
-}
-
+/**
+ * Classifies a single transaction (uses cached or micro-batch client)
+ */
 export async function classifySemanticClient(cleanedLabel, programs, settings) {
-  if (!cleanedLabel || cleanedLabel.trim() === '') return null;
-  if (settings?.aiMode === 'OFF' || !settings?.aiMode) return null;
-
-  if (circuitOpen) {
-    if (Date.now() - circuitOpenTime < CIRCUIT_TIMEOUT) {
-      return null;
-    }
-    circuitOpen = false;
-    consecutiveFailures = 0;
-  }
-
-  const prompt = buildPrompt(cleanedLabel, programs);
-  let resultText;
-
-  try {
-    const mode = settings.aiMode;
-    if (mode === 'LOCAL_OLLAMA') {
-      resultText = await callOllama(prompt, settings);
-    } else if (mode === 'GEMINI') {
-      resultText = await callGemini(prompt, settings);
-    } else if (mode === 'OPENAI') {
-      resultText = await callOpenAI(prompt, settings);
-    } else {
-      return null;
-    }
-
-    const result = parseAIResponse(resultText, programs);
-    if (!result) {
-      consecutiveFailures++;
-      if (consecutiveFailures >= CIRCUIT_THRESHOLD) {
-        circuitOpen = true;
-        circuitOpenTime = Date.now();
-      }
-      return null;
-    }
-
-    consecutiveFailures = 0;
-    circuitOpen = false;
-    return result;
-  } catch (err) {
-    console.warn('[AI Matcher]', err.message);
-    consecutiveFailures++;
-    if (consecutiveFailures >= CIRCUIT_THRESHOLD) {
-      circuitOpen = true;
-      circuitOpenTime = Date.now();
-    }
-    return null;
-  }
+  if (!cleanedLabel || !cleanedLabel.trim()) return null;
+  const results = await classifySemanticBatchClient([{ id: 'single_1', cleanedLabel }], programs, settings);
+  return results && results[0] ? results[0] : null;
 }
 
-export async function classifySemanticBatchClient(items, programs, settings) {
+/**
+ * High-Efficiency Micro-Batch Semantic Classification
+ * Port of classify_semantic_batch from app/engine/ai_matcher.py
+ */
+export async function classifySemanticBatchClient(items, programs, settings, bypassCache = false) {
   if (!items || items.length === 0) return [];
-  if (settings?.aiMode === 'OFF' || !settings?.aiMode) return [];
+  const mode = (settings?.aiMode || '').toUpperCase();
+  if (mode === 'OFF' || mode === 'DISABLED') return items.map(() => null);
 
+  const results = new Array(items.length).fill(null);
+  const uncachedIndices = [];
+
+  for (let idx = 0; idx < items.length; idx++) {
+    const it = items[idx];
+    const lbl = (it.cleanedLabel || it.rawLabel || '').trim();
+    if (!lbl) continue;
+    const normKey = lbl.toLowerCase();
+
+    if (!bypassCache && _aiLabelCache.has(normKey)) {
+      results[idx] = _aiLabelCache.get(normKey);
+    } else {
+      uncachedIndices.push(idx);
+    }
+  }
+
+  if (uncachedIndices.length === 0) {
+    return results;
+  }
+
+  // Check Circuit Breaker
   if (circuitOpen) {
-    if (Date.now() - circuitOpenTime < CIRCUIT_TIMEOUT) {
-      return [];
+    if (Date.now() - circuitOpenTime < CIRCUIT_TIMEOUT_MS) {
+      return results;
     }
     circuitOpen = false;
     consecutiveFailures = 0;
   }
 
-  const prompt = buildBatchPrompt(items, programs);
-  let resultText;
+  const uncachedItems = uncachedIndices.map(i => items[i]);
+  const prompt = buildCompactPrompt(uncachedItems, programs);
 
+  let rawResponseText = '';
   try {
-    const mode = settings.aiMode;
-    if (mode === 'LOCAL_OLLAMA') {
-      resultText = await callOllama(prompt, settings);
-    } else if (mode === 'GEMINI') {
-      resultText = await callGemini(prompt, settings);
-    } else if (mode === 'OPENAI') {
-      resultText = await callOpenAI(prompt, settings);
+    if (mode === 'LOCAL_OLLAMA' || mode === 'OLLAMA') {
+      rawResponseText = await callOllama(prompt, settings);
+    } else if (mode === 'GEMINI' || mode === 'GOOGLE_GEMINI' || mode === 'CLOUD_API') {
+      rawResponseText = await callGemini(prompt, settings);
+    } else if (mode === 'OPENAI' || mode === 'GROQ' || mode === 'OPENROUTER' || mode === 'CUSTOM_OPENAI') {
+      rawResponseText = await callOpenAICompatible(prompt, settings);
     } else {
-      return [];
+      return results;
     }
 
-    const results = parseBatchAIResponse(resultText, programs);
-    if (!results || results.length === 0) {
-      consecutiveFailures++;
-      if (consecutiveFailures >= CIRCUIT_THRESHOLD) {
-        circuitOpen = true;
-        circuitOpenTime = Date.now();
+    const cleanedJson = cleanJsonResponse(rawResponseText);
+    let parsedData = [];
+    try {
+      parsedData = JSON.parse(cleanedJson);
+      if (!Array.isArray(parsedData) && typeof parsedData === 'object' && parsedData !== null) {
+        parsedData = [parsedData];
       }
-      return [];
+    } catch {
+      parsedData = [];
     }
 
+    // Reset circuit breaker on success
     consecutiveFailures = 0;
     circuitOpen = false;
+
+    // Build lookup sets for whitelist sanitization
+    const validProgMap = new Map();
+    for (const p of programs || []) {
+      validProgMap.set(String(p.id), p);
+    }
+
+    for (let pos = 0; pos < parsedData.length; pos++) {
+      const dataItem = parsedData[pos];
+      if (!dataItem) continue;
+
+      let targetOrigIdx = -1;
+      const itemIdxNum = parseInt(dataItem.idx, 10);
+      if (!isNaN(itemIdxNum) && itemIdxNum >= 1 && itemIdxNum <= uncachedIndices.length) {
+        targetOrigIdx = uncachedIndices[itemIdxNum - 1];
+      } else if (pos < uncachedIndices.length) {
+        targetOrigIdx = uncachedIndices[pos];
+      }
+
+      if (targetOrigIdx === -1) continue;
+
+      let progId = dataItem.id_program !== undefined ? dataItem.id_program : dataItem.program_id;
+      progId = progId ? String(progId).trim() : null;
+
+      let matchedProgram = null;
+      if (progId && validProgMap.has(progId)) {
+        matchedProgram = validProgMap.get(progId);
+      } else if (progId) {
+        // Search by name or code if LLM returned name/code instead of id
+        for (const p of programs) {
+          if (String(p.id).toLowerCase() === progId.toLowerCase() ||
+              String(p.coaCode) === progId ||
+              p.name.toLowerCase() === progId.toLowerCase()) {
+            matchedProgram = p;
+            progId = p.id;
+            break;
+          }
+        }
+      }
+
+      let coa = Number(dataItem.no_akun || dataItem.coa);
+      if (matchedProgram) {
+        coa = matchedProgram.coaCode;
+      }
+
+      const confidence = parseConfidence(dataItem.confidence);
+      const reason = String(dataItem.reason || 'Rekomendasi AI Semantik').trim();
+
+      const parsedRes = {
+        programId: matchedProgram ? matchedProgram.id : null,
+        coa: coa || (matchedProgram ? matchedProgram.coaCode : null),
+        confidence: confidence,
+        reason: reason
+      };
+
+      results[targetOrigIdx] = parsedRes;
+
+      const normKey = (items[targetOrigIdx].cleanedLabel || items[targetOrigIdx].rawLabel || '').trim().toLowerCase();
+      if (normKey) {
+        _aiLabelCache.set(normKey, parsedRes);
+      }
+    }
+
+    trimCache();
     return results;
   } catch (err) {
-    console.warn('[AI Matcher Batch]', err.message);
     consecutiveFailures++;
     if (consecutiveFailures >= CIRCUIT_THRESHOLD) {
       circuitOpen = true;
       circuitOpenTime = Date.now();
     }
-    return [];
+    console.warn('AI Classifier Warning:', err.message);
+    return results;
+  }
+}
+
+/**
+ * Diagnostic tool for testing connection to AI providers
+ */
+export async function testAIConnection(settings) {
+  const dummyPrograms = [
+    { id: 'prog-zkt-maal', coaCode: 40100101, name: 'Zakat Maal', keywords: ['zakat', 'maal', 'gaji'], description: 'Zakat harta/penghasilan' },
+    { id: 'prog-inf-umum', coaCode: 40201001, name: 'Infak Umum', keywords: ['infak', 'sedekah'], description: 'Infak dan sedekah umum' }
+  ];
+  const testItem = [{ id: 'test_1', cleanedLabel: 'Zakat penghasilan bulanan' }];
+
+  const startTime = Date.now();
+  try {
+    resetCircuitBreaker();
+    const results = await classifySemanticBatchClient(testItem, dummyPrograms, settings, true);
+    const latency = Date.now() - startTime;
+    const res = results && results[0];
+
+    if (res && res.confidence > 0) {
+      return {
+        ok: true,
+        message: `Koneksi berhasil (${latency}ms). Prediksi: ${res.programId || 'Program Terdeteksi'} (COA: ${res.coa}, Keyakinan: ${Math.round(res.confidence * 100)}%)`,
+        latency
+      };
+    } else {
+      return {
+        ok: false,
+        message: `Koneksi tersambung (${latency}ms) tetapi model mengembalikan respons kosong atau confidence 0.`,
+        latency
+      };
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      message: `Gagal terkoneksi: ${err.message}`,
+      latency: Date.now() - startTime
+    };
   }
 }
