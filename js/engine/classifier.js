@@ -424,7 +424,13 @@ export async function classifyBatch(rows, master, onProgress) {
         const chunkItems = chunkIndices.map(idx => results[idx]);
 
         try {
-          const aiBatchResults = await classifySemanticBatchClient(chunkItems, programs, settings);
+          const contextOptions = {
+            companyAliases: master.companyAliases || [],
+            orgName: settings.orgName || 'Yayasan / Lembaga Amil Zakat',
+            defaultBaselineCoa,
+            defaultUnauthorizedCoa
+          };
+          const aiBatchResults = await classifySemanticBatchClient(chunkItems, programs, settings, false, contextOptions);
 
           for (let cPos = 0; cPos < chunkIndices.length; cPos++) {
             const origIdx = chunkIndices[cPos];
@@ -436,7 +442,7 @@ export async function classifyBatch(rows, master, onProgress) {
               const finalCoa = matchedProgram ? matchedProgram.coaCode : aiRes.coa;
 
               it.assignedCoa = finalCoa;
-              it.assignedCoaName = coaList.find(c => c.code === finalCoa)?.name || '';
+              it.assignedCoaName = coaList.find(c => c.code === finalCoa)?.name || (finalCoa === defaultBaselineCoa ? 'Penerimaan Infak & Sedekah - Umum' : '');
               it.assignedProgramId = matchedProgram ? matchedProgram.id : null;
               it.matchedLayer = 'AI_SEMANTIC';
               it.confidence = round4(aiRes.confidence);

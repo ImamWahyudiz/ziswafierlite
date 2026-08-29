@@ -54,26 +54,36 @@ function formatCompactPrograms(programs) {
 }
 
 /**
- * Builds the authentic syariah compact batch prompt from app/engine/ai_matcher.py
+ * Builds the authentic syariah compact batch prompt with Program and Organization Alias context
  */
-function buildCompactPrompt(items, programs) {
+function buildCompactPrompt(items, programs, options = {}) {
   const compactProgTable = formatCompactPrograms(programs);
   const txLines = items.map((it, idx) => `${idx + 1}: "${it.cleanedLabel || it.rawLabel}"`);
   const txBlock = txLines.join('\n');
 
-  return `Kamu adalah asisten akuntansi syariah ZISWAF. Analisis teks mutasi donatur dan tentukan program yang paling cocok.
+  const orgName = options.orgName || 'Yayasan / Lembaga Amil Zakat';
+  const aliases = (options.companyAliases || []).filter(Boolean);
+  const baselineCoa = options.defaultBaselineCoa || 40201001;
+  const unauthCoa = options.defaultUnauthorizedCoa || 40201000;
 
+  const aliasSection = aliases.length > 0 
+    ? `\nNAMA & ALIAS RESMI LEMBAGA/YAYASAN:\n- Nama Lembaga: "${orgName}"\n- Kata Kunci / Alias Rekening: ${aliases.join(', ')}\n`
+    : '';
+
+  return `Kamu adalah asisten akuntansi syariah ZISWAF. Analisis teks mutasi donatur dan tentukan program/COA yang paling cocok.
+${aliasSection}
 DAFTAR MASTER PROGRAM (ID|COA|NAMA_PROGRAM|HINTS):
 ${compactProgTable}
 
 TRANSAKSI UNTUK DIANALISIS:
 ${txBlock}
 
-INSTRUKSI:
-1. Pahami maksud/sinonim konteks donasi (contoh: air/sumur/pipanisasi -> Sarana Air; lauk/nutrisi/konsumsi santri -> Gizi Santri; kewajiban harta 2.5%/nishab -> Zakat Maal; SPP/pendidikan -> Beasiswa; bencana alam/musibah -> Tanggap Bencana; obat/darurat medis -> Layanan Kesehatan; semen/bata/gedung -> Wakaf Fisik; domba/hewan ternak -> Qurban; tebusan puasa -> Fidyah).
-2. Jika tidak ada kecocokan atau keterangan terlalu samar/buta/acak, beri id_program: null, no_akun: 40201000, confidence: 0.0.
-3. Alasan/reason dibuat sangat singkat (maksimal 10 kata).
-4. Output HANYA JSON array murni tanpa markdown, format:
+INSTRUKSI & ATURAN KLASIFIKASI:
+1. Pahami maksud/sinonim konteks donasi (contoh: air/sumur/pipanisasi -> Sarana Air; lauk/nutrisi/konsumsi santri -> Gizi Santri; kewajiban harta 2.5%/nishab/gaji -> Zakat Maal; SPP/pendidikan -> Beasiswa; bencana alam/musibah -> Tanggap Bencana; obat/darurat medis -> Layanan Kesehatan; semen/bata/gedung/masjid -> Wakaf Fisik; domba/hewan ternak -> Qurban; tebusan puasa -> Fidyah).
+2. PENTING - NAMA/ALIAS YAYASAN/LEMBAGA: Jika keterangan transaksi menyebut nama yayasan atau kata kunci alias resmi di atas (misalnya "infaq yayasan", "transfer lazis", "titipan amil zakat", "donasi yayasan", "sedekah operasional", "infaq kas lembaga") tanpa menyebutkan program khusus lain, AI HARUS mengalokasikannya ke akun INFAK & SEDEKAH UMUM (id_program: null, no_akun: ${baselineCoa}, confidence: 0.90, reason: "Donasi umum atas nama yayasan/lembaga").
+3. Jika tidak ada kecocokan sama sekali atau keterangan mutasi buta/acak/hanya nama pengirim tanpa kata donasi, beri id_program: null, no_akun: ${unauthCoa}, confidence: 0.0.
+4. Alasan/reason dibuat sangat singkat (maksimal 10 kata).
+5. Output HANYA JSON array murni tanpa markdown, format:
 [
   {"idx": 1, "id_program": "<id_program_atau_null>", "no_akun": <number>, "confidence": <float_0_sampai_1>, "reason": "<string ringkas>"}
 ]`;
@@ -298,7 +308,7 @@ export async function classifySemanticClient(cleanedLabel, programs, settings) {
  * High-Efficiency Micro-Batch Semantic Classification
  * Port of classify_semantic_batch from app/engine/ai_matcher.py
  */
-export async function classifySemanticBatchClient(items, programs, settings, bypassCache = false) {
+export async function classifySemanticBatchClient(items, programs, settings, bypassCache = false, contextOptions = {}) {
   if (!items || items.length === 0) return [];
   const mode = (settings?.aiMode || '').toUpperCase();
   if (mode === 'OFF' || mode === 'DISABLED') return items.map(() => null);
@@ -333,7 +343,7 @@ export async function classifySemanticBatchClient(items, programs, settings, byp
   }
 
   const uncachedItems = uncachedIndices.map(i => items[i]);
-  const prompt = buildCompactPrompt(uncachedItems, programs);
+  const prompt = buildCompactPrompt(uncachedItems, programs, contextOptions);
 
   let rawResponseText = '';
   try {

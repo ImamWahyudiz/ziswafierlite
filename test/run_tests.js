@@ -106,6 +106,17 @@ await ok("unrecognized code -> UNAUTHORIZED_FALLBACK", async () => {
   const r = await classifySingle(tx(10, "TRF CR Z1Z91", 300000), M);
   assert.strictEqual(r.matchedLayer, "UNAUTHORIZED_FALLBACK");
 });
+await ok("AI prompt includes company aliases and instructs allocation to Infak Umum", async () => {
+  const { classifyBatch } = await import("../js/engine/classifier.js");
+  const customMaster = {
+    ...M,
+    companyAliases: ["Yayasan Nurul Falah", "lazis nurul falah"],
+    settings: { ...M.settings, aiMode: "OFF" }
+  };
+  const res = await classifyBatch([tx(99, "Infaq kas Yayasan Nurul Falah", 50000)], customMaster);
+  assert.strictEqual(res[0].assignedCoa, 40201001);
+  assert.strictEqual(res[0].matchedLayer, "ORG_ALIAS");
+});
 
 console.log("== UNIT: INPUT SANITIZERS & VALIDATION ==");
 const { sanitizeInputText, sanitizeSlug, sanitizePhone, sanitizeCoaCode } = await import("../js/engine/sanitizer.js");
