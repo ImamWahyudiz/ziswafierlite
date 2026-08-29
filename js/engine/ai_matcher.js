@@ -34,19 +34,15 @@ export function clearAiCache() {
 }
 
 /**
- * Compresses master program list into an ultra-compact flat text index (~150-200 tokens)
+ * Compresses master program list into an ultra-compact flat text index
  * Format: ID|COA|NAMA_PROGRAM|HINTS
  */
 function formatCompactPrograms(programs) {
   const lines = [];
   for (const p of programs || []) {
     const hints = [];
-    if (p.description) {
-      hints.push(p.description.slice(0, 80));
-    }
-    if (p.keywords && p.keywords.length > 0) {
-      hints.push(p.keywords.slice(0, 6).join(', '));
-    }
+    if (p.description) hints.push(p.description.slice(0, 80));
+    if (p.keywords && p.keywords.length > 0) hints.push(p.keywords.slice(0, 6).join(', '));
     const hintStr = hints.join(' | ').replace(/\n/g, ' ').trim();
     lines.push(`${p.id}|${p.coaCode}|${p.name}|${hintStr}`);
   }
@@ -54,7 +50,22 @@ function formatCompactPrograms(programs) {
 }
 
 /**
- * Builds the compact batch prompt with Program and Organization Alias context
+ * Compresses donor list into compact index — used as AI safety net
+ * Format: NAMA|PROGRAM_DEFAULT  (capped at 80 entries to avoid prompt bloat)
+ */
+function formatCompactDonors(donors) {
+  if (!donors || donors.length === 0) return '';
+  return donors
+    .slice(0, 80)
+    .map(d => {
+      const prog = d.defaultProgramId ? `→${d.defaultProgramId}` : '';
+      return `${d.name}${prog}`;
+    })
+    .join('\n');
+}
+
+/**
+ * Builds the compact batch prompt with full master data context
  */
 function buildCompactPrompt(items, programs, options = {}) {
   const compactProgTable = formatCompactPrograms(programs);
@@ -65,12 +76,16 @@ function buildCompactPrompt(items, programs, options = {}) {
   const baselineCoa = options.defaultBaselineCoa || 40201001;
   const unauthCoa = options.defaultUnauthorizedCoa || 40201000;
 
-  const aliasSection = aliases.length > 0 
+  const aliasSection = aliases.length > 0
     ? `\nALIAS/NAMA LEMBAGA: ${aliases.join(', ')}\n`
     : '';
 
+  const donorSection = options.donors && options.donors.length > 0
+    ? `\nDONATUR TETAP (NAMA→PROGRAM_DEFAULT):\n${formatCompactDonors(options.donors)}\n`
+    : '';
+
   return `Kamu asisten akuntansi syariah ZISWAF. Analisis konteks & maksud mutasi donatur, lalu tentukan program/COA yang cocok.
-${aliasSection}
+${aliasSection}${donorSection}
 MASTER PROGRAM (ID|COA|NAMA_PROGRAM|HINTS):
 ${compactProgTable}
 
@@ -79,13 +94,15 @@ ${txBlock}
 
 INSTRUKSI:
 1. Cocok program spesifik: Beri id_program, no_akun program, confidence 0.85-1.0.
-2. Donasi umum / sebut alias lembaga (ada kata donasi/sedekah/infaq/sumbangan tanpa program khusus): Alokasikan ke Infak Umum (id_program: null, no_akun: ${baselineCoa}, confidence: 0.90, reason: "Donasi/infaq umum").
-3. Mutasi buta / tanpa kata donasi (hanya nama pengirim): Karantina ke Unauthorized (id_program: null, no_akun: ${unauthCoa}, confidence: 0.0, reason: "Hanya nama tanpa keterangan").
-4. Output HANYA JSON array murni tanpa markdown, format:
+2. Nama pengirim cocok Donatur Tetap di atas: Gunakan program default donatur (atau Infak Umum jika kosong), confidence 0.90.
+3. Donasi umum / sebut alias lembaga (ada kata donasi/sedekah/infaq/sumbangan tanpa program khusus): Alokasikan ke Infak Umum (id_program: null, no_akun: ${baselineCoa}, confidence: 0.90).
+4. Mutasi buta / tanpa kata donasi dan tidak dikenal: Karantina ke Unauthorized (id_program: null, no_akun: ${unauthCoa}, confidence: 0.0).
+5. Output HANYA JSON array murni tanpa markdown, format:
 [
   {"idx": 1, "id_program": "<id_atau_null>", "no_akun": <number>, "confidence": <float_0_1>, "reason": "<maks_10_kata>"}
 ]`;
 }
+
 
 async function fetchWithTimeout(url, options, timeout = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();

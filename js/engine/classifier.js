@@ -203,18 +203,27 @@ export async function classifySingle(tx, master) {
   const aiMode = (settings.aiMode || '').toUpperCase();
   if (aiMode !== 'OFF' && aiMode !== 'DISABLED' && cleanedLabel.trim()) {
     try {
-      const res = await classifySemanticClient(cleanedLabel, programs, settings);
-      if (res && res.confidence >= confidenceThreshold && res.coa) {
-        // Sanitize against program/COA list
-        let matchedProgram = programs.find(p => p.id === res.programId);
-        let finalCoa = matchedProgram ? matchedProgram.coaCode : res.coa;
+      const singleContextOptions = {
+        companyAliases: master.companyAliases || [],
+        orgName: settings.orgName || 'Yayasan / Lembaga Amil Zakat',
+        defaultBaselineCoa,
+        defaultUnauthorizedCoa,
+        donors: donors || []
+      };
+      const res = await classifySemanticBatchClient(
+        [{ id: 'single_1', cleanedLabel }], programs, settings, false, singleContextOptions
+      );
+      const aiRes = res && res[0];
+      if (aiRes && aiRes.confidence >= confidenceThreshold && aiRes.coa) {
+        let matchedProgram = programs.find(p => p.id === aiRes.programId);
+        let finalCoa = matchedProgram ? matchedProgram.coaCode : aiRes.coa;
         
         result.assignedCoa = finalCoa;
         result.assignedCoaName = coaList.find(c => c.code === finalCoa)?.name || '';
         result.assignedProgramId = matchedProgram ? matchedProgram.id : null;
         result.matchedLayer = 'AI_SEMANTIC';
-        result.confidence = round4(res.confidence);
-        result.reasoning = res.reason || `Rekomendasi AI semantik (${aiMode})`;
+        result.confidence = round4(aiRes.confidence);
+        result.reasoning = aiRes.reason || `Rekomendasi AI semantik (${aiMode})`;
         return result;
       }
     } catch (e) {
@@ -457,7 +466,8 @@ export async function classifyBatch(rows, master, onProgress) {
             companyAliases: master.companyAliases || [],
             orgName: settings.orgName || 'Yayasan / Lembaga Amil Zakat',
             defaultBaselineCoa,
-            defaultUnauthorizedCoa
+            defaultUnauthorizedCoa,
+            donors: donors || []
           };
           const aiBatchResults = await classifySemanticBatchClient(chunkItems, programs, settings, false, contextOptions);
 
