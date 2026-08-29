@@ -199,6 +199,20 @@ export async function classifySingle(tx, master) {
     }
   }
   
+  // Layer 4.5: DONASI_UMUM — deterministic donation word catch
+  // If label has any generic donation word but no specific program keyword matched,
+  // route to Infak Umum instead of risking AI low-confidence → UNAUTHORIZED
+  const DONASI_WORDS = /\b(donasi|sedekah|shadaqah|sodaqoh|sdkh|infaq?|wakaf|waqaf|zakat|zkt|amal|sumbangan|bantuan)\b/i;
+  if (DONASI_WORDS.test(cleanedLabel) || DONASI_WORDS.test(rawLower)) {
+    result.assignedCoa = defaultBaselineCoa;
+    result.assignedCoaName = coaList.find(c => c.code === defaultBaselineCoa)?.name || '';
+    result.assignedProgramId = null;
+    result.matchedLayer = 'DONASI_UMUM';
+    result.confidence = 0.80;
+    result.reasoning = 'Terdeteksi kata donasi/sedekah/infaq tanpa kata kunci program spesifik (Infak Umum)';
+    return result;
+  }
+
   // Layer 5: Semantic AI Matcher
   const aiMode = (settings.aiMode || '').toUpperCase();
   if (aiMode !== 'OFF' && aiMode !== 'DISABLED' && cleanedLabel.trim()) {
@@ -441,6 +455,22 @@ export async function classifyBatch(rows, master, onProgress) {
       if (keywordMatched) break;
     }
     if (keywordMatched) {
+      results[i] = item;
+      resolvedCount++;
+      layerCounts.KEYWORD++;
+      if (onProgress) onProgress(resolvedCount, rows.length, item, layerCounts);
+      continue;
+    }
+
+    // Layer 4.5: DONASI_UMUM — deterministic donation word catch
+    const DONASI_WORDS = /\b(donasi|sedekah|shadaqah|sodaqoh|sdkh|infaq?|wakaf|waqaf|zakat|zkt|amal|sumbangan|bantuan)\b/i;
+    if (DONASI_WORDS.test(cleanedLabel) || DONASI_WORDS.test(rawLower)) {
+      item.assignedCoa = defaultBaselineCoa;
+      item.assignedCoaName = coaList.find(c => c.code === defaultBaselineCoa)?.name || '';
+      item.assignedProgramId = null;
+      item.matchedLayer = 'DONASI_UMUM';
+      item.confidence = 0.80;
+      item.reasoning = 'Terdeteksi kata donasi/sedekah/infaq tanpa kata kunci program spesifik (Infak Umum)';
       results[i] = item;
       resolvedCount++;
       layerCounts.KEYWORD++;
