@@ -199,11 +199,21 @@ export async function classifySingle(tx, master) {
     }
   }
   
-  // Layer 4.5: DONASI_UMUM — deterministic donation word catch
-  // If label has any generic donation word but no specific program keyword matched,
-  // route to Infak Umum instead of risking AI low-confidence → UNAUTHORIZED
-  const DONASI_WORDS = /\b(donasi|sedekah|shadaqah|sodaqoh|sdkh|infaq?|wakaf|waqaf|zakat|zkt|amal|sumbangan|bantuan)\b/i;
-  if (DONASI_WORDS.test(cleanedLabel) || DONASI_WORDS.test(rawLower)) {
+  // Layer 4.5: DONASI_UMUM / ZAKAT_WAKAF_UNAUTH — deterministic donation word catch
+  // zakat & wakaf MUST have a specific COA — if no keyword matched, send to UNAUTHORIZED for review
+  // all other donation words → Infak Umum
+  const ZAKAT_WAKAF_RE = /\b(zakat|zkt|wakaf|waqaf)\b/i;
+  const DONASI_UMUM_RE = /\b(donasi|sedekah|shadaqah|sodaqoh|sdkh|infaq?|amal|sumbangan|bantuan)\b/i;
+  if (ZAKAT_WAKAF_RE.test(cleanedLabel) || ZAKAT_WAKAF_RE.test(rawLower)) {
+    result.assignedCoa = defaultUnauthorizedCoa;
+    result.assignedCoaName = coaList.find(c => c.code === defaultUnauthorizedCoa)?.name || '';
+    result.assignedProgramId = null;
+    result.matchedLayer = 'UNAUTHORIZED_FALLBACK';
+    result.confidence = 0.0;
+    result.reasoning = 'Transaksi zakat/wakaf tanpa kata kunci program spesifik — wajib diverifikasi manual';
+    return result;
+  }
+  if (DONASI_UMUM_RE.test(cleanedLabel) || DONASI_UMUM_RE.test(rawLower)) {
     result.assignedCoa = defaultBaselineCoa;
     result.assignedCoaName = coaList.find(c => c.code === defaultBaselineCoa)?.name || '';
     result.assignedProgramId = null;
@@ -462,9 +472,23 @@ export async function classifyBatch(rows, master, onProgress) {
       continue;
     }
 
-    // Layer 4.5: DONASI_UMUM — deterministic donation word catch
-    const DONASI_WORDS = /\b(donasi|sedekah|shadaqah|sodaqoh|sdkh|infaq?|wakaf|waqaf|zakat|zkt|amal|sumbangan|bantuan)\b/i;
-    if (DONASI_WORDS.test(cleanedLabel) || DONASI_WORDS.test(rawLower)) {
+    // Layer 4.5: DONASI_UMUM / ZAKAT_WAKAF_UNAUTH — deterministic donation word catch
+    const ZAKAT_WAKAF_RE = /\b(zakat|zkt|wakaf|waqaf)\b/i;
+    const DONASI_UMUM_RE = /\b(donasi|sedekah|shadaqah|sodaqoh|sdkh|infaq?|amal|sumbangan|bantuan)\b/i;
+    if (ZAKAT_WAKAF_RE.test(cleanedLabel) || ZAKAT_WAKAF_RE.test(rawLower)) {
+      item.assignedCoa = defaultUnauthorizedCoa;
+      item.assignedCoaName = coaList.find(c => c.code === defaultUnauthorizedCoa)?.name || '';
+      item.assignedProgramId = null;
+      item.matchedLayer = 'UNAUTHORIZED_FALLBACK';
+      item.confidence = 0.0;
+      item.reasoning = 'Transaksi zakat/wakaf tanpa kata kunci program spesifik — wajib diverifikasi manual';
+      results[i] = item;
+      resolvedCount++;
+      layerCounts.UNAUTHORIZED_FALLBACK++;
+      if (onProgress) onProgress(resolvedCount, rows.length, item, layerCounts);
+      continue;
+    }
+    if (DONASI_UMUM_RE.test(cleanedLabel) || DONASI_UMUM_RE.test(rawLower)) {
       item.assignedCoa = defaultBaselineCoa;
       item.assignedCoaName = coaList.find(c => c.code === defaultBaselineCoa)?.name || '';
       item.assignedProgramId = null;
