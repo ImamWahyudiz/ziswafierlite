@@ -168,39 +168,61 @@ async function callOllama(prompt, settings) {
  */
 async function callGemini(prompt, settings) {
   const apiKey = (settings.aiApiKey || '').trim();
-  if (!apiKey) throw new Error('API Key Google Gemini belum diisi.');
+  if (!apiKey) throw new Error('API Key Google Gemini belum diisi. Masukkan API Key di tab Pengaturan AI.');
 
-  let model = (settings.aiModelName || 'gemini-2.0-flash').trim().replace(/^\/?models\//i, '');
-  if (!model) model = 'gemini-2.0-flash';
+  let rawModel = (settings.aiModelName || 'gemini-3.5-flash').trim().replace(/^\/?models\//i, '');
+  let model = rawModel.toLowerCase().replace(/\s+/g, '-');
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const payload = {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      responseMimeType: 'application/json',
-      temperature: 0.1
-    }
-  };
-
-  const response = await fetchWithTimeout(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  }, REQUEST_TIMEOUT_MS);
-
-  if (!response.ok) {
-    let errBody = '';
-    try {
-      const errJson = await response.json();
-      errBody = errJson.error?.message || response.statusText;
-    } catch {
-      errBody = response.statusText;
-    }
-    throw new Error(`Gemini API Error (${response.status}): ${errBody}`);
+  // Automatic routing for legacy/deprecated model names to active Gemini models
+  if (!model || model === 'gemini-2.0-flash' || model === 'gemini-1.5-flash' || model === 'gemini-2.5-flash' || model.includes('3.1-flash-lite')) {
+    model = 'gemini-3.5-flash';
   }
 
-  const json = await response.json();
-  return json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const modelsToTry = [model];
+  if (!modelsToTry.includes('gemini-3.5-flash')) modelsToTry.push('gemini-3.5-flash');
+  if (!modelsToTry.includes('gemini-3.6-flash')) modelsToTry.push('gemini-3.6-flash');
+
+  let lastError = null;
+  for (const currentModel of modelsToTry) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(currentModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const payload = {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.1
+        }
+      };
+
+      const response = await fetchWithTimeout(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }, REQUEST_TIMEOUT_MS);
+
+      if (!response.ok) {
+        let errBody = '';
+        try {
+          const errJson = await response.json();
+          errBody = errJson.error?.message || response.statusText;
+        } catch {
+          errBody = response.statusText;
+        }
+        throw new Error(`Gemini API Error (${response.status}): ${errBody}`);
+      }
+
+      const json = await response.json();
+      const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      if (text) return text;
+    } catch (err) {
+      lastError = err;
+      if (err.message.includes('401') || err.message.includes('403') || err.message.includes('API key not valid') || err.message.includes('API_KEY_INVALID')) {
+        throw err;
+      }
+    }
+  }
+
+  throw lastError || new Error('Gagal mendapatkan respon dari Google Gemini API.');
 }
 
 /**
@@ -410,10 +432,17 @@ export async function classifySemanticBatchClient(items, programs, settings, byp
       circuitOpen = true;
       circuitOpenTime = Date.now();
     }
+    lastCallError = err;
     console.warn('AI Classifier Warning:', err.message);
+    if (bypassCache) {
+      // If called explicitly (e.g. Test Connection or Rescan), throw the underlying error!
+      throw err;
+    }
     return results;
   }
 }
+
+let lastCallError = null;
 
 /**
  * Diagnostic tool for testing connection to AI providers
@@ -428,7 +457,7 @@ export async function testAIConnection(settings) {
   const provider = (settings.aiMode || 'OFF').toUpperCase();
   let resolvedModel = (settings.aiModelName || '').trim();
   if (!resolvedModel) {
-    if (provider === 'GEMINI' || provider === 'GOOGLE_GEMINI') resolvedModel = 'gemini-2.0-flash';
+    if (provider === 'GEMINI' || provider === 'GOOGLE_GEMINI') resolvedModel = 'gemini-3.5-flash';
     else if (provider === 'LOCAL_OLLAMA' || provider === 'OLLAMA') resolvedModel = 'qwen2.5:3b-instruct';
     else if (provider === 'GROQ') resolvedModel = 'llama-3.3-70b-versatile';
     else if (provider === 'OPENROUTER') resolvedModel = 'qwen/qwen-2.5-72b-instruct';
@@ -437,12 +466,13 @@ export async function testAIConnection(settings) {
 
   const startTime = Date.now();
   resetCircuitBreaker();
+  lastCallError = null;
   
   let results;
   try {
     results = await classifySemanticBatchClient(testItem, dummyPrograms, settings, true);
   } catch (err) {
-    throw new Error(`Gagal menghubungi provider ${provider} (${resolvedModel}): ${err.message}`);
+    throw new Error(`Provider ${provider} (${resolvedModel}): ${err.message}`);
   }
 
   const latency = Date.now() - startTime;
@@ -461,6 +491,9 @@ export async function testAIConnection(settings) {
       message: `Koneksi berhasil (${latency}ms). Hasil: ${res.programId || 'Program'} (COA: ${res.coa}, Keyakinan: ${Math.round(res.confidence * 100)}%)`
     };
   } else {
+    if (lastCallError) {
+      throw new Error(`Provider ${provider} (${resolvedModel}): ${lastCallError.message}`);
+    }
     throw new Error(`Provider ${provider} (${resolvedModel}) terhubung (${latency}ms) tetapi tidak mengembalikan klasifikasi valid (confidence 0 / kosong). Pastikan API Key dan nama model sudah benar.`);
   }
 }
