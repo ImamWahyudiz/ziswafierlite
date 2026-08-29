@@ -36,14 +36,46 @@ function persistRows() {
   }
 }
 
+const STORAGE_KEY_STATE = "ziswaf_session_view_state_v1";
+
+function loadPersistedState() {
+  try {
+    const raw = storage?.getItem(STORAGE_KEY_STATE);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return {};
+}
+
+function persistState() {
+  try {
+    if (storage) {
+      storage.setItem(STORAGE_KEY_STATE, JSON.stringify({
+        sortKey,
+        sortDir,
+        currentPage,
+        searchTerm,
+        searchScope,
+        filterCategory,
+        periodFilter,
+        dateFrom,
+        dateTo
+      }));
+    }
+  } catch (e) {}
+}
+
 let rows = loadPersistedRows();
-let sortKey = 'date';
-let sortDir = 'desc';
-let currentPage = 1;
+const _savedState = loadPersistedState();
+let sortKey = _savedState.sortKey || 'date';
+let sortDir = _savedState.sortDir || 'desc';
+let currentPage = typeof _savedState.currentPage === 'number' && _savedState.currentPage > 0 ? _savedState.currentPage : 1;
 const PAGE_SIZE = 80;
-let searchTerm = '';
-let searchScope = 'ALL';
-let filterCategory = 'ALL';
+let searchTerm = _savedState.searchTerm || '';
+let searchScope = _savedState.searchScope || 'ALL';
+let filterCategory = _savedState.filterCategory || 'ALL';
+let periodFilter = _savedState.periodFilter || 'ALL';
+let dateFrom = _savedState.dateFrom || null;
+let dateTo = _savedState.dateTo || null;
 
 export const MAX_SESSION_ROWS = MAX_ROWS;
 
@@ -127,12 +159,10 @@ export function clearRows() {
   currentPage = 1;
   searchTerm = '';
   filterCategory = 'ALL';
+  periodFilter = 'ALL';
+  persistState();
   notify();
 }
-
-let periodFilter = 'ALL';
-let dateFrom = null;
-let dateTo = null;
 
 export function getSortState() { return { sortKey, sortDir }; }
 export function setSort(key) {
@@ -142,24 +172,33 @@ export function setSort(key) {
     sortKey = key;
     sortDir = key === 'amount' ? 'desc' : 'desc';
   }
-  currentPage = 1;
+  persistState();
   notify();
 }
 
 export function getFilter() { return { searchTerm, searchScope, filterCategory, periodFilter, dateFrom, dateTo }; }
-export function setFilter(patch) {
+export function setFilter(patch, keepPage = false) {
   if (patch.searchTerm !== undefined) searchTerm = patch.searchTerm;
   if (patch.searchScope !== undefined) searchScope = patch.searchScope;
   if (patch.filterCategory !== undefined) filterCategory = patch.filterCategory;
   if (patch.periodFilter !== undefined) periodFilter = patch.periodFilter;
   if (patch.dateFrom !== undefined) dateFrom = patch.dateFrom;
   if (patch.dateTo !== undefined) dateTo = patch.dateTo;
-  currentPage = 1;
+  if (!keepPage && patch.currentPage === undefined) {
+    currentPage = 1;
+  } else if (patch.currentPage !== undefined) {
+    currentPage = patch.currentPage;
+  }
+  persistState();
   notify();
 }
 
 export function getPage() { return currentPage; }
-export function setPage(p) { currentPage = p; notify(); }
+export function setPage(p) { 
+  currentPage = p; 
+  persistState();
+  notify(); 
+}
 
 export function getRowsByPeriod(p = periodFilter, from = dateFrom, to = dateTo) {
   if (p === 'ALL') return rows;

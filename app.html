@@ -5,12 +5,43 @@
     <script>
         (function() {
             try {
+                if ('scrollRestoration' in history) {
+                    history.scrollRestoration = 'manual';
+                }
                 var saved = localStorage.getItem('ziswaf_theme');
                 if (saved) {
                     document.documentElement.setAttribute('data-theme', saved);
                 } else {
                     var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
                     document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+                }
+
+                // Prevent page & subtab flash/flicker on refresh
+                var savedPage = localStorage.getItem('ziswaf_active_page');
+                if (!savedPage) {
+                    var raw = localStorage.getItem('ziswaf_demo_session_rows_v1');
+                    if (raw && raw !== '[]') savedPage = 'dashboard';
+                    else savedPage = 'config';
+                }
+                var css = '';
+                if (savedPage === 'dashboard') {
+                    css += '#page-config, #page-upload { display: none !important; } #page-dashboard { display: block !important; } #step-config { background: transparent !important; color: var(--text-muted) !important; } #step-dashboard { background: var(--surface2) !important; color: var(--accent) !important; }';
+                } else if (savedPage === 'upload') {
+                    css += '#page-config, #page-dashboard { display: none !important; } #page-upload { display: block !important; } #step-config { background: transparent !important; color: var(--text-muted) !important; } #step-upload { background: var(--surface2) !important; color: var(--accent) !important; }';
+                } else {
+                    css += '#page-upload, #page-dashboard { display: none !important; } #page-config { display: block !important; }';
+                }
+
+                var savedSubtab = localStorage.getItem('ziswaf_active_subtab');
+                if (savedSubtab && savedSubtab !== 'coa') {
+                    css += ' #panel-coa { display: none !important; } #panel-' + savedSubtab + ' { display: block !important; } button[data-tab="coa"] { border-color: transparent !important; color: var(--text-muted) !important; } button[data-tab="' + savedSubtab + '"] { border-color: var(--accent) !important; color: var(--accent) !important; }';
+                }
+
+                if (css) {
+                    var styleEl = document.createElement('style');
+                    styleEl.id = 'early-page-style';
+                    styleEl.innerHTML = css;
+                    document.head.appendChild(styleEl);
                 }
             } catch(e) {
                 document.documentElement.setAttribute('data-theme', 'dark');

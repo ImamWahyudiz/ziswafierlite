@@ -89,13 +89,52 @@ document.addEventListener('mouseout', e => {
 const PAGES = ['config', 'upload', 'dashboard'];
 let _completedUpload = false;
 
-function navigateTo(page) {
+// ─── Scroll & Position Persistence ───────────────────────────────────────────
+let _isRestoringScroll = false;
+window.addEventListener('scroll', () => {
+  if (!_isRestoringScroll) {
+    try { sessionStorage.setItem('ziswaf_scroll_y', String(window.scrollY)); } catch (e) {}
+  }
+}, { passive: true });
+
+function preserveScroll(fn) {
+  const currentY = window.scrollY;
+  fn();
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: currentY, behavior: 'instant' });
+  });
+}
+
+function restoreSavedScroll() {
+  try {
+    const saved = sessionStorage.getItem('ziswaf_scroll_y');
+    if (saved !== null) {
+      const y = parseInt(saved, 10);
+      if (!isNaN(y)) {
+        _isRestoringScroll = true;
+        window.scrollTo({ top: y, behavior: 'instant' });
+        setTimeout(() => { _isRestoringScroll = false; }, 100);
+      }
+    }
+  } catch (e) {}
+}
+
+function navigateTo(page, keepScroll = false) {
   PAGES.forEach(p => {
-    document.getElementById(`page-${p}`).classList.toggle('hidden', p !== page);
+    document.getElementById(`page-${p}`)?.classList.toggle('hidden', p !== page);
     document.getElementById(`step-${p}`)?.classList.toggle('active', p === page);
   });
+  const earlyStyle = document.getElementById('early-page-style');
+  if (earlyStyle) earlyStyle.remove();
+  try { localStorage.setItem('ziswaf_active_page', page); } catch (e) {}
+  const currentY = window.scrollY;
   if (page === 'config') renderConfigPage();
   if (page === 'dashboard') renderDashboard();
+  if (keepScroll) {
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: currentY, behavior: 'instant' });
+    });
+  }
 }
 
 document.getElementById('stepper').addEventListener('click', e => {
@@ -140,16 +179,25 @@ try {
 
 const SUBTABS = ['coa', 'program', 'donor', 'alias', 'ai', 'backup'];
 
+function switchSubtab(tab) {
+  if (!SUBTABS.includes(tab)) tab = 'coa';
+  document.querySelectorAll('.subtab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.subtab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${tab}`));
+  try { localStorage.setItem('ziswaf_active_subtab', tab); } catch (e) {}
+}
+
 document.getElementById('config-subtabs').addEventListener('click', e => {
   const btn = e.target.closest('.subtab');
   if (!btn) return;
-  document.querySelectorAll('.subtab').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.subtab-panel').forEach(p => p.classList.remove('active'));
-  btn.classList.add('active');
-  document.getElementById(`panel-${btn.dataset.tab}`)?.classList.add('active');
+  const currentY = window.scrollY;
+  switchSubtab(btn.dataset.tab);
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: currentY, behavior: 'instant' });
+  });
 });
 
 function renderConfigPage() {
+  const currentY = window.scrollY;
   const m = getMaster();
   document.getElementById('count-coa').textContent = m.coaList.length;
   document.getElementById('count-program').textContent = m.programs.length;
@@ -161,6 +209,9 @@ function renderConfigPage() {
   renderAliasList(m);
   renderAiSettings(m);
   renderSystemCoaSettings(m);
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: currentY, behavior: 'instant' });
+  });
 }
 
 // ─── Master Data State & Selection ───────────────────────────────────────────
@@ -1170,21 +1221,27 @@ document.getElementById('report-search-input').addEventListener('input', e => {
   _searchDebounce = setTimeout(() => {
     _selectedIds.clear();
     _isGlobalSelected = false;
-    setFilter({ searchTerm: e.target.value });
-    const { total } = getPagedRows();
-    const countEl = document.getElementById('search-result-count');
-    if (countEl) countEl.textContent = e.target.value ? ` (${total} hasil)` : '';
+    preserveScroll(() => {
+      setFilter({ searchTerm: e.target.value });
+      const { total } = getPagedRows();
+      const countEl = document.getElementById('search-result-count');
+      if (countEl) countEl.textContent = e.target.value ? ` (${total} hasil)` : '';
+    });
   }, 250);
 });
 document.getElementById('report-search-scope').addEventListener('change', e => {
   _selectedIds.clear();
   _isGlobalSelected = false;
-  setFilter({ searchScope: e.target.value });
+  preserveScroll(() => {
+    setFilter({ searchScope: e.target.value });
+  });
 });
 document.getElementById('report-category-select').addEventListener('change', e => {
   _selectedIds.clear();
   _isGlobalSelected = false;
-  setFilter({ filterCategory: e.target.value });
+  preserveScroll(() => {
+    setFilter({ filterCategory: e.target.value });
+  });
 });
 document.getElementById('card-stat-unauthorized')?.addEventListener('click', () => {
   const select = document.getElementById('report-category-select');
@@ -1192,10 +1249,13 @@ document.getElementById('card-stat-unauthorized')?.addEventListener('click', () 
   select.value = next;
   _selectedIds.clear();
   _isGlobalSelected = false;
-  setFilter({ filterCategory: next });
+  preserveScroll(() => {
+    setFilter({ filterCategory: next });
+  });
 });
 
 function renderDashboard() {
+  const currentY = window.scrollY;
   const allRows = getRows();
 
   const emptyState = document.getElementById('dashboard-empty-state');
@@ -1237,6 +1297,9 @@ function renderDashboard() {
   renderCharts(periodRows);
   renderTable();
   updateFooterBar(periodRows);
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: currentY, behavior: 'instant' });
+  });
 }
 
 function updateFooterBar(filtered) {
@@ -1281,52 +1344,62 @@ function renderTop5Chart(filtered, master) {
     </div>`).join('') || '<div class="text-muted text-xs">Tidak ada data penerimaan.</div>';
 
   const canvas = document.getElementById('chart-top5');
-  if (_chartTop5) { _chartTop5.destroy(); _chartTop5 = null; }
-  if (!top5.length) return;
+  if (!top5.length) {
+    if (_chartTop5) { _chartTop5.destroy(); _chartTop5 = null; }
+    return;
+  }
 
   const isNarrow = (canvas.parentElement?.clientWidth && canvas.parentElement.clientWidth > 0)
     ? canvas.parentElement.clientWidth < 450
     : window.innerWidth < 640;
 
-  _chartTop5 = new Chart(canvas, {
-    type: 'bar',
-    data: {
-      labels: top5.map(p => p.name.length > 10 ? p.name.slice(0, 10) + '…' : p.name),
-      datasets: [{ data: top5.map(p => p.total), backgroundColor: CHART_COLORS.slice(0, top5.length), borderRadius: 6, borderSkipped: false }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false, indexAxis: 'x',
-      onResize: (chart, size) => {
-        const shouldHide = size.width < 450;
-        if (chart.options.scales.x.ticks.display === shouldHide) {
-          chart.options.scales.x.ticks.display = !shouldHide;
-          chart.update('none');
-        }
+  if (_chartTop5) {
+    _chartTop5.data.labels = top5.map(p => p.name.length > 10 ? p.name.slice(0, 10) + '…' : p.name);
+    _chartTop5.data.datasets[0].data = top5.map(p => p.total);
+    _chartTop5.data.datasets[0].backgroundColor = CHART_COLORS.slice(0, top5.length);
+    _chartTop5.options.scales.x.ticks.display = !isNarrow;
+    _chartTop5.update('none');
+  } else {
+    _chartTop5 = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: top5.map(p => p.name.length > 10 ? p.name.slice(0, 10) + '…' : p.name),
+        datasets: [{ data: top5.map(p => p.total), backgroundColor: CHART_COLORS.slice(0, top5.length), borderRadius: 6, borderSkipped: false }]
       },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            title: items => top5[items[0]?.dataIndex]?.name || '',
-            label: ctx => fmtRp(ctx.raw) + '  (' + top5[ctx.dataIndex].count + ' trx)'
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'x',
+        onResize: (chart, size) => {
+          const shouldHide = size.width < 450;
+          if (chart.options.scales.x.ticks.display === shouldHide) {
+            chart.options.scales.x.ticks.display = !shouldHide;
+            chart.update('none');
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: items => top5[items[0]?.dataIndex]?.name || '',
+              label: ctx => fmtRp(ctx.raw) + '  (' + top5[ctx.dataIndex].count + ' trx)'
+            }
+          }
+        },
+        scales: {
+          y: { ticks: { callback: v => 'Rp ' + (v >= 1e9 ? (v/1e9).toFixed(1)+'M' : v >= 1e6 ? (v/1e6).toFixed(0)+'jt' : v.toLocaleString('id-ID')), color: '#8b99b0', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+          x: {
+            ticks: {
+              display: !isNarrow,
+              color: '#8b99b0',
+              font: { size: 9.5 },
+              maxRotation: 0,
+              autoSkip: true
+            },
+            grid: { display: false }
           }
         }
-      },
-      scales: {
-        y: { ticks: { callback: v => 'Rp ' + (v >= 1e9 ? (v/1e9).toFixed(1)+'M' : v >= 1e6 ? (v/1e6).toFixed(0)+'jt' : v.toLocaleString('id-ID')), color: '#8b99b0', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
-        x: {
-          ticks: {
-            display: !isNarrow,
-            color: '#8b99b0',
-            font: { size: 9.5 },
-            maxRotation: 0,
-            autoSkip: true
-          },
-          grid: { display: false }
-        }
       }
-    }
-  });
+    });
+  }
 }
 
 function renderCatChart(filtered, sys) {
@@ -1358,23 +1431,32 @@ function renderCatChart(filtered, sys) {
     </div>`).join('') || '<div class="text-muted text-xs">Tidak ada data penerimaan.</div>';
 
   const canvas = document.getElementById('chart-cat');
-  if (_chartCat) { _chartCat.destroy(); _chartCat = null; }
-  if (!items.length) return;
+  if (!items.length) {
+    if (_chartCat) { _chartCat.destroy(); _chartCat = null; }
+    return;
+  }
 
-  _chartCat = new Chart(canvas, {
-    type: 'doughnut',
-    data: {
-      labels: items.map(([n]) => n),
-      datasets: [{ data: items.map(([, v]) => v), backgroundColor: CHART_COLORS.slice(0, items.length), borderWidth: 2, borderColor: 'transparent', hoverOffset: 6 }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false, cutout: '62%',
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: ctx => fmtRp(ctx.raw) + (grandTotal ? ' (' + (ctx.raw / grandTotal * 100).toFixed(1) + '%)' : '') } }
+  if (_chartCat) {
+    _chartCat.data.labels = items.map(([n]) => n);
+    _chartCat.data.datasets[0].data = items.map(([, v]) => v);
+    _chartCat.data.datasets[0].backgroundColor = CHART_COLORS.slice(0, items.length);
+    _chartCat.update('none');
+  } else {
+    _chartCat = new Chart(canvas, {
+      type: 'doughnut',
+      data: {
+        labels: items.map(([n]) => n),
+        datasets: [{ data: items.map(([, v]) => v), backgroundColor: CHART_COLORS.slice(0, items.length), borderWidth: 2, borderColor: 'transparent', hoverOffset: 6 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '62%',
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => fmtRp(ctx.raw) + (grandTotal ? ' (' + (ctx.raw / grandTotal * 100).toFixed(1) + '%)' : '') } }
+        }
       }
-    }
-  });
+    });
+  }
 }
 
 // ─── TABLE ────────────────────────────────────────────────────────────────────
@@ -1531,7 +1613,12 @@ function updateSortIcons(key, dir) {
 
 document.getElementById('transactions-table').addEventListener('click', e => {
   const th = e.target.closest('.th-sortable');
-  if (th) { setSort(th.dataset.sort); renderTable(); }
+  if (th) {
+    preserveScroll(() => {
+      setSort(th.dataset.sort);
+      renderTable();
+    });
+  }
 });
 
 function updateGlobalSelectionBanner() {
@@ -1613,16 +1700,18 @@ function onCoaChange(e) {
   const newCoa = parseInt(e.target.value);
   const master = getMaster();
   const coaEntry = master.coaList.find(c => c.code === newCoa);
-  updateRow(id, {
-    assignedCoa: newCoa,
-    newName: coaEntry?.name || String(newCoa),
-    matchedLayer: 'MANUAL_OVERRIDE',
-    isOverridden: true,
-    confidence: 1.0,
-    reasoning: 'Override manual',
-    isExpense: newCoa === 60100008
+  preserveScroll(() => {
+    updateRow(id, {
+      assignedCoa: newCoa,
+      newName: coaEntry?.name || String(newCoa),
+      matchedLayer: 'MANUAL_OVERRIDE',
+      isOverridden: true,
+      confidence: 1.0,
+      reasoning: 'Override manual',
+      isExpense: newCoa === 60100008
+    });
+    renderDashboard();
   });
-  renderDashboard();
 }
 
 function updateSelectionBanner() {
@@ -1887,7 +1976,12 @@ function renderPagination(page, totalPages, total, start, end) {
   </div>`;
 
   container.querySelectorAll('[data-p]').forEach(btn => {
-    btn.addEventListener('click', () => { setPage(parseInt(btn.dataset.p)); renderTable(); });
+    btn.addEventListener('click', () => {
+      preserveScroll(() => {
+        setPage(parseInt(btn.dataset.p));
+        renderTable();
+      });
+    });
   });
 }
 
@@ -2073,10 +2167,47 @@ export function initAllStickyScrollbars() {
 
 document.addEventListener('DOMContentLoaded', () => {
   setupDropzone();
-  if (getRowCount() > 0) {
-    navigateTo('dashboard');
-  } else {
-    navigateTo('config');
+
+  // 1. Restore Filter Controls DOM values from persistent session state
+  const curFilter = getFilter();
+  const catSelect = document.getElementById('report-category-select');
+  if (catSelect && curFilter.filterCategory) catSelect.value = curFilter.filterCategory;
+
+  const scopeSelect = document.getElementById('report-search-scope');
+  if (scopeSelect && curFilter.searchScope) scopeSelect.value = curFilter.searchScope;
+
+  const searchInput = document.getElementById('report-search-input');
+  if (searchInput && curFilter.searchTerm) {
+    searchInput.value = curFilter.searchTerm;
+    const countEl = document.getElementById('search-result-count');
+    if (countEl) countEl.textContent = ` (${getPagedRows().total} hasil)`;
   }
+
+  const periodSelect = document.getElementById('report-period-select');
+  if (periodSelect && curFilter.periodFilter) {
+    periodSelect.value = curFilter.periodFilter;
+    const customRow = document.getElementById('custom-date-row');
+    if (customRow) customRow.classList.toggle('hidden', curFilter.periodFilter !== 'CUSTOM');
+  }
+
+  // 2. Restore active page & subtab
+  let savedPage = null;
+  try { savedPage = localStorage.getItem('ziswaf_active_page'); } catch (e) {}
+  if (!savedPage || !PAGES.includes(savedPage)) {
+    savedPage = getRowCount() > 0 ? 'dashboard' : 'config';
+  }
+  navigateTo(savedPage, true);
+
+  let savedSubtab = null;
+  try { savedSubtab = localStorage.getItem('ziswaf_active_subtab'); } catch (e) {}
+  if (savedSubtab && SUBTABS.includes(savedSubtab)) {
+    switchSubtab(savedSubtab);
+  }
+
   initAllStickyScrollbars();
+
+  // 3. Restore window scroll position
+  requestAnimationFrame(() => {
+    restoreSavedScroll();
+  });
 });
