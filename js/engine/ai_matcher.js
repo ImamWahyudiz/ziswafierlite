@@ -78,9 +78,9 @@ TRANSAKSI:
 ${txBlock}
 
 INSTRUKSI:
-1. Pahami konteks donasi, sinonim, dan variasi ejaan syariah (sedekah/sodaqoh, zakat/zkt, infak/infaq, wakaf/waqaf).
-2. Jika menyebut nama/alias lembaga tanpa program khusus, alokasikan ke Infak Umum (id_program: null, no_akun: ${baselineCoa}, confidence: 0.90, reason: "Donasi umum lembaga").
-3. Jika tidak cocok/buta/hanya nama pengirim tanpa kata donasi, beri id_program: null, no_akun: ${unauthCoa}, confidence: 0.0.
+1. Cocok program spesifik: Beri id_program, no_akun program, confidence 0.85-1.0.
+2. Donasi umum / sebut alias lembaga (ada kata donasi/sedekah/infaq/sumbangan tanpa program khusus): Alokasikan ke Infak Umum (id_program: null, no_akun: ${baselineCoa}, confidence: 0.90, reason: "Donasi/infaq umum").
+3. Mutasi buta / tanpa kata donasi (hanya nama pengirim): Karantina ke Unauthorized (id_program: null, no_akun: ${unauthCoa}, confidence: 0.0, reason: "Hanya nama tanpa keterangan").
 4. Output HANYA JSON array murni tanpa markdown, format:
 [
   {"idx": 1, "id_program": "<id_atau_null>", "no_akun": <number>, "confidence": <float_0_1>, "reason": "<maks_10_kata>"}
