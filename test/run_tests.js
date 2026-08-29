@@ -92,13 +92,102 @@ await ok("alias + other text -> still Unauthorized", async () => {
   assert.strictEqual(r.matchedLayer, "UNAUTHORIZED_FALLBACK");
 });
 
-console.log("== UNIT: MASTER STORE ==");
+console.log("== UNIT: INPUT SANITIZERS & VALIDATION ==");
+const { sanitizeInputText, sanitizeSlug, sanitizePhone, sanitizeCoaCode } = await import("../js/engine/sanitizer.js");
+
+await ok("sanitizeInputText removes script tags and escapes control chars", () => {
+  const dirty = "<script>alert('xss')</script><b>Program Peduli</b> \n\r\t";
+  const clean = sanitizeInputText(dirty, 50);
+  assert.strictEqual(clean, "Program Peduli");
+  assert.ok(!clean.includes("<script>"));
+});
+
+await ok("sanitizeSlug converts to valid identifier", () => {
+  assert.strictEqual(sanitizeSlug("Prog Sedekah Subuh #01!"), "prog-sedekah-subuh-01");
+  assert.strictEqual(sanitizeSlug("---prog_test---"), "prog_test");
+});
+
+await ok("sanitizePhone strips non-digits and normalizes", () => {
+  assert.strictEqual(sanitizePhone("+62 812-3456-7890"), "+6281234567890");
+  assert.strictEqual(sanitizePhone("0812-999-888"), "0812999888");
+});
+
+await ok("sanitizeCoaCode parses valid account code numbers", () => {
+  assert.strictEqual(sanitizeCoaCode("40201001"), 40201001);
+  assert.strictEqual(sanitizeCoaCode(" 40201002 "), 40201002);
+  assert.strictEqual(sanitizeCoaCode("invalid"), null);
+});
+
+console.log("== UNIT: MASTER STORE & IMPORT/EXPORT ==");
 store.resetToDefaults();
 await ok("defaults present after reset", () => {
   const m = store.getMaster();
   assert.ok(m.coaList && m.coaList.length >= 20);
   for (const code of [40201000, 40201001, 60100008]) assert.ok(m.coaList.some((c) => Number(c.code) === code), `missing ${code}`);
 });
+
+await ok("importMasterFromExcel imports PROGRAM-ONLY sheet without COA sheet", () => {
+  store.resetToDefaults();
+  const progRows = [
+    { 'ID': 'prog-custom-1', 'NAMA PROGRAM': 'Peduli Yatim Piatu', 'COA': 40202101, 'KODE EKOR': '123', 'KEYWORDS': 'yatim;piatu' },
+    { 'ID': 'prog-custom-2', 'NAMA PROGRAM': 'Wakaf Sumur Air', 'COA': 40202102, 'KODE EKOR': '124', 'KEYWORDS': 'wakaf;sumur' }
+  ];
+  const ws = XLSX.utils.json_to_sheet(progRows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Program');
+  
+  const res = store.importMasterFromExcel(wb, 'merge');
+  assert.strictEqual(res.programCount, 2);
+  const m = store.getMaster();
+  const found = m.programs.find(p => p.id === 'prog-custom-1');
+  assert.ok(found, "Imported program-only sheet should insert program into store");
+  assert.strictEqual(found.name, 'Peduli Yatim Piatu');
+});
+
+await ok("importMasterFromExcel support replace mode", () => {
+  store.resetToDefaults();
+  const progRows = [
+    { 'ID': 'prog-unique-only', 'NAMA PROGRAM': 'Program Khusus', 'COA': 40202101 }
+  ];
+  const ws = XLSX.utils.json_to_sheet(progRows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Program');
+  
+  store.importMasterFromExcel(wb, 'replace');
+  const m = store.getMaster();
+  assert.ok(m.programs.some(p => p.id === 'prog-unique-only'));
+  // Special baseline programs must still be kept
+  assert.ok(m.programs.some(p => p.id === 'BASELINE_ZAKAT'));
+});
+
+await ok("importConfigFromJson roundtrip export & import (replace & merge)", () => {
+  store.resetToDefaults();
+  store.addAlias("Yayasan Berkah Bersama");
+  const jsonStr = store.exportConfigToJson();
+  
+  // Test valid json
+  store.resetToDefaults();
+  assert.ok(!store.getMaster().companyAliases.includes("Yayasan Berkah Bersama"));
+  
+  store.importConfigFromJson(jsonStr, 'replace');
+  assert.ok(store.getMaster().companyAliases.includes("Yayasan Berkah Bersama"));
+});
+
+await ok("batchDelete functions work properly on COA, Program, Donor, Alias", () => {
+  store.resetToDefaults();
+  store.addCoa({ code: 49999001, name: "Akun Hapus 1", category: "UMUM" });
+  store.addCoa({ code: 49999002, name: "Akun Hapus 2", category: "UMUM" });
+  
+  let m = store.getMaster();
+  const idx1 = m.coaList.findIndex(c => c.code === 49999001);
+  const idx2 = m.coaList.findIndex(c => c.code === 49999002);
+  assert.ok(idx1 >= 0 && idx2 >= 0);
+  
+  const deletedCoa = store.batchDeleteCoa([idx1, idx2]);
+  assert.strictEqual(deletedCoa, 2);
+  assert.ok(!store.getMaster().coaList.some(c => c.code === 49999001 || c.code === 49999002));
+});
+
 await ok("updateMaster patch visible + notify", () => {
   let notified = false;
   const unsub = store.subscribe(() => { notified = true; });
@@ -108,6 +197,59 @@ await ok("updateMaster patch visible + notify", () => {
   assert.strictEqual(store.getMaster().companyAliases[0], "test-alias");
 });
 store.resetToDefaults();
+
+console.log("== UNIT: SESSION STORE ==");
+const sessionStore = await import("../js/store/session_store.js");
+await ok("sessionStore deleteRows and restoreRows", () => {
+  sessionStore.setRows([
+    { id: "tx-1", transactionDate: "2025-08-01", rawAmount: 100000, assignedCoa: 40201001 },
+    { id: "tx-2", transactionDate: "2025-08-02", rawAmount: 200000, assignedCoa: 40201001 },
+    { id: "tx-3", transactionDate: "2025-08-03", rawAmount: 300000, assignedCoa: 40201001 },
+  ]);
+  assert.strictEqual(sessionStore.getRowCount(), 3);
+  
+  sessionStore.deleteRows(["tx-1", "tx-3"]);
+  assert.strictEqual(sessionStore.getRowCount(), 1);
+  assert.strictEqual(sessionStore.getRows()[0].id, "tx-2");
+  
+  sessionStore.restoreRows([
+    { id: "tx-1", transactionDate: "2025-08-01", rawAmount: 100000, assignedCoa: 40201001 },
+    { id: "tx-3", transactionDate: "2025-08-03", rawAmount: 300000, assignedCoa: 40201001 }
+  ]);
+  assert.strictEqual(sessionStore.getRowCount(), 3);
+  sessionStore.clearRows();
+});
+
+await ok("sessionStore category and period filtering scopes getFilteredSorted correctly", () => {
+  sessionStore.setRows([
+    { id: "tx-u1", transactionDate: "2026-08-01", rawAmount: 100000, assignedCoa: 40201000, matchedLayer: "UNAUTHORIZED_FALLBACK" },
+    { id: "tx-u2", transactionDate: "2026-07-15", rawAmount: 150000, assignedCoa: 40201000, matchedLayer: "UNAUTHORIZED_FALLBACK" },
+    { id: "tx-c1", transactionDate: "2026-08-05", rawAmount: 200000, assignedCoa: 40201001, matchedLayer: "DONATUR_TETAP" },
+    { id: "tx-e1", transactionDate: "2026-08-10", rawAmount: -50000, assignedCoa: 60100008, isExpense: true, matchedLayer: "EXPENSE" },
+  ]);
+
+  // Test 1: Category filter UNAUTHORIZED should only return unauthorized rows
+  sessionStore.setFilter({ filterCategory: "UNAUTHORIZED", periodFilter: "ALL" });
+  let filtered = sessionStore.getFilteredSorted();
+  assert.strictEqual(filtered.length, 2);
+  assert.ok(filtered.every(r => r.id === "tx-u1" || r.id === "tx-u2"));
+
+  // Test 2: Period filter CUSTOM date range within 2026-08-01 to 2026-08-31
+  sessionStore.setFilter({ filterCategory: "ALL", periodFilter: "CUSTOM", dateFrom: "2026-08-01", dateTo: "2026-08-31" });
+  filtered = sessionStore.getFilteredSorted();
+  assert.strictEqual(filtered.length, 3);
+  assert.ok(!filtered.some(r => r.id === "tx-u2")); // July row excluded
+
+  // Test 3: Combined Period (August) + Category (UNAUTHORIZED)
+  sessionStore.setFilter({ filterCategory: "UNAUTHORIZED", periodFilter: "CUSTOM", dateFrom: "2026-08-01", dateTo: "2026-08-31" });
+  filtered = sessionStore.getFilteredSorted();
+  assert.strictEqual(filtered.length, 1);
+  assert.strictEqual(filtered[0].id, "tx-u1");
+
+  // Cleanup
+  sessionStore.setFilter({ filterCategory: "ALL", periodFilter: "ALL", dateFrom: null, dateTo: null });
+  sessionStore.clearRows();
+});
 
 console.log("== E2E PARITY: sample/inputt.xlsx vs sample/output.xlsx ==");
 let parityPct = -1;

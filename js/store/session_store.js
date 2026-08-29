@@ -1,6 +1,42 @@
 const MAX_ROWS = 10_000;
 const subscribers = new Set();
-let rows = [];
+const STORAGE_KEY_SESSION = "ziswaf_demo_session_rows_v1";
+
+const storage = (() => {
+  try {
+    if (typeof localStorage !== "undefined" && typeof localStorage?.getItem === "function" && typeof localStorage?.setItem === "function") return localStorage;
+  } catch (e) {}
+  return null;
+})();
+
+function loadPersistedRows() {
+  try {
+    const raw = storage?.getItem(STORAGE_KEY_SESSION);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.warn("Gagal memuat sesi tersimpan:", e);
+  }
+  return [];
+}
+
+function persistRows() {
+  try {
+    if (storage) {
+      if (rows.length === 0) {
+        storage.removeItem(STORAGE_KEY_SESSION);
+      } else {
+        storage.setItem(STORAGE_KEY_SESSION, JSON.stringify(rows));
+      }
+    }
+  } catch (e) {
+    console.warn("Storage quota exceeded or unavailable:", e);
+  }
+}
+
+let rows = loadPersistedRows();
 let sortKey = 'date';
 let sortDir = 'desc';
 let currentPage = 1;
@@ -25,6 +61,7 @@ export function getRowCount() { return rows.length; }
 
 export function setRows(newRows) {
   rows = newRows;
+  persistRows();
   currentPage = 1;
   searchTerm = '';
   filterCategory = 'ALL';
@@ -35,6 +72,7 @@ export function mergeRows(newRows) {
   const existing = new Set(rows.map(r => `${r.transactionDate}|${r.rawLabel}|${r.rawAmount}`));
   const added = newRows.filter(r => !existing.has(`${r.transactionDate}|${r.rawLabel}|${r.rawAmount}`));
   rows = [...rows, ...added];
+  persistRows();
   currentPage = 1;
   notify();
   return added.length;
@@ -44,22 +82,47 @@ export function updateRow(id, patch) {
   const idx = rows.findIndex(r => r.id === id);
   if (idx === -1) return;
   rows[idx] = { ...rows[idx], ...patch };
+  persistRows();
   notify();
 }
 
 export function bulkUpdateRows(ids, patch) {
   const set = new Set(ids);
   rows = rows.map(r => set.has(r.id) ? { ...r, ...patch } : r);
+  persistRows();
+  notify();
+}
+
+export function deleteRows(ids) {
+  const set = new Set(ids);
+  rows = rows.filter(r => !set.has(r.id));
+  persistRows();
+  const filtered = getFilteredSorted();
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  if (currentPage > totalPages) currentPage = Math.max(1, totalPages);
+  notify();
+}
+
+export function restoreRows(restoredRows) {
+  const existingIds = new Set(rows.map(r => r.id));
+  const toAdd = restoredRows.filter(r => !existingIds.has(r.id));
+  rows = [...rows, ...toAdd];
+  persistRows();
   notify();
 }
 
 export function clearRows() {
   rows = [];
+  persistRows();
   currentPage = 1;
   searchTerm = '';
   filterCategory = 'ALL';
   notify();
 }
+
+let periodFilter = 'ALL';
+let dateFrom = null;
+let dateTo = null;
 
 export function getSortState() { return { sortKey, sortDir }; }
 export function setSort(key) {
@@ -73,11 +136,14 @@ export function setSort(key) {
   notify();
 }
 
-export function getFilter() { return { searchTerm, searchScope, filterCategory }; }
+export function getFilter() { return { searchTerm, searchScope, filterCategory, periodFilter, dateFrom, dateTo }; }
 export function setFilter(patch) {
   if (patch.searchTerm !== undefined) searchTerm = patch.searchTerm;
   if (patch.searchScope !== undefined) searchScope = patch.searchScope;
   if (patch.filterCategory !== undefined) filterCategory = patch.filterCategory;
+  if (patch.periodFilter !== undefined) periodFilter = patch.periodFilter;
+  if (patch.dateFrom !== undefined) dateFrom = patch.dateFrom;
+  if (patch.dateTo !== undefined) dateTo = patch.dateTo;
   currentPage = 1;
   notify();
 }
@@ -85,14 +151,34 @@ export function setFilter(patch) {
 export function getPage() { return currentPage; }
 export function setPage(p) { currentPage = p; notify(); }
 
+export function getRowsByPeriod(p = periodFilter, from = dateFrom, to = dateTo) {
+  if (p === 'ALL') return rows;
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth();
+  return rows.filter(r => {
+    if (!r.transactionDate) return false;
+    const d = new Date(r.transactionDate);
+    if (p === 'THIS_MONTH') return d.getFullYear() === y && d.getMonth() === m;
+    if (p === 'LAST_MONTH') {
+      const lm = m === 0 ? 11 : m - 1, ly = m === 0 ? y - 1 : y;
+      return d.getFullYear() === ly && d.getMonth() === lm;
+    }
+    if (p === 'THIS_YEAR') return d.getFullYear() === y;
+    if (p === 'CUSTOM' && from && to) {
+      return r.transactionDate >= from && r.transactionDate <= to;
+    }
+    return true;
+  });
+}
+
 export function getFilteredSorted() {
-  let result = rows;
+  let result = getRowsByPeriod();
 
   if (filterCategory !== 'ALL') {
     if (filterCategory === 'UNAUTHORIZED') {
-      result = result.filter(r => r.assignedCoa === 40201000 || r.matchedLayer === 'UNAUTHORIZED_FALLBACK');
+      result = result.filter(r => Number(r.assignedCoa) === 40201000 || String(r.assignedCoa) === '40201000' || r.matchedLayer === 'UNAUTHORIZED_FALLBACK');
     } else if (filterCategory === 'EXPENSE') {
-      result = result.filter(r => r.isExpense || r.assignedCoa === 60100008);
+      result = result.filter(r => r.isExpense || Number(r.assignedCoa) === 60100008 || String(r.assignedCoa) === '60100008');
     } else if (filterCategory === 'MANUAL_OVERRIDE') {
       result = result.filter(r => r.matchedLayer === 'MANUAL_OVERRIDE');
     }
