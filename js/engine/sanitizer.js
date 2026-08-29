@@ -92,3 +92,70 @@ export function cleanTransactionText(rawLabel, companyAliases) {
   
   return { cleanedLabel: workingLabel, extractedSenderName, companyAliasMatched };
 }
+
+/**
+ * Sanitizes generic user input text:
+ * - Strips HTML tags, script blocks, and dangerous control characters
+ * - Collapses consecutive spaces
+ * - Trims and enforces maximum length
+ */
+export function sanitizeInputText(text, maxLen = 120) {
+  if (text === null || text === undefined) return '';
+  let str = String(text);
+  // Remove script/style tags and contents
+  str = str.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+  str = str.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
+  // Remove all HTML tags
+  str = str.replace(/<[^>]+>/g, '');
+  // Remove control characters (except common spacing)
+  str = str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  // Collapse whitespace
+  str = str.replace(/\s+/g, ' ').trim();
+  if (maxLen && str.length > maxLen) {
+    str = str.slice(0, maxLen).trim();
+  }
+  return str;
+}
+
+/**
+ * Sanitizes identifier/slug string (e.g. program ID):
+ * - Keeps alphanumeric, dashes, and underscores
+ */
+export function sanitizeSlug(text, maxLen = 50) {
+  if (!text) return '';
+  let str = String(text).trim().toLowerCase();
+  str = str.replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^[-_]+|[-_]+$/g, '');
+  if (maxLen && str.length > maxLen) {
+    str = str.slice(0, maxLen).replace(/^[-_]+|[-_]+$/g, '');
+  }
+  return str;
+}
+
+/**
+ * Sanitizes phone numbers:
+ * - Keeps digits and optional leading '+'
+ */
+export function sanitizePhone(phone, maxLen = 25) {
+  if (!phone) return '';
+  let str = String(phone).trim();
+  const hasPlus = str.startsWith('+');
+  str = str.replace(/\D/g, '');
+  if (!str) return '';
+  if (hasPlus) str = '+' + str;
+  if (maxLen && str.length > maxLen) {
+    str = str.slice(0, maxLen);
+  }
+  return str;
+}
+
+/**
+ * Sanitizes account/COA code:
+ * - Returns positive integer or null if invalid
+ */
+export function sanitizeCoaCode(code) {
+  if (code === null || code === undefined || code === '') return null;
+  const num = parseInt(String(code).replace(/\D/g, ''), 10);
+  if (isNaN(num) || num <= 0 || num > 999999999999) return null;
+  return num;
+}
+
