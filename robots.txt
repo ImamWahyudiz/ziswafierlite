@@ -1,9 +1,6 @@
-# ZISWAFier - robots.txt
+# ZISWAFier Lite - robots.txt
 User-agent: *
 Allow: /
 
-# Sitemap
-Sitemap: https://ziswafierlite.github.io/ziswafier/sitemap.xml
-
-# Crawl-delay (optional, for aggressive bots)
-Crawl-delay: 1
+# Fast Indexing Sitemap
+Sitemap: https://ziswafierlite.vercel.app/sitemap.xml
