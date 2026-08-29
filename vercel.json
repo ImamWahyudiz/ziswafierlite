@@ -1,6 +1,13 @@
 {
   "cleanUrls": true,
   "trailingSlash": false,
+  "rewrites": [
+    { "source": "/app", "destination": "/app.html" }
+  ],
+  "redirects": [
+    { "source": "/index.html", "destination": "/", "permanent": true },
+    { "source": "/app.html", "destination": "/app", "permanent": true }
+  ],
   "headers": [
     {
       "source": "/(.*)",

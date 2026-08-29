@@ -32,10 +32,24 @@ const server = createServer(async (req, res) => {
   try {
     let path = decodeURIComponent(new URL(req.url, "http://x").pathname);
     if (path.endsWith("/")) path += "index.html";
-    const file = normalize(join(ROOT, path));
+    let file = normalize(join(ROOT, path));
     if (!file.startsWith(normalize(ROOT))) {
       res.writeHead(403); res.end("Forbidden"); return;
     }
+    
+    // Support clean URLs: if /app, serve /app.html
+    try {
+      await stat(file);
+    } catch {
+      if (!extname(file)) {
+        const fileWithHtml = file + ".html";
+        try {
+          await stat(fileWithHtml);
+          file = fileWithHtml;
+        } catch {}
+      }
+    }
+
     const st = await stat(file);
     const target = st.isDirectory() ? join(file, "index.html") : file;
     const body = await readFile(target);

@@ -20,7 +20,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ZISWAFier Lite — Aplikasi Rekonsiliasi &amp; Klasifikasi Mutasi Bank</title>
     <meta name="description" content="Aplikasi client-side rekonsiliasi mutasi bank rekening ZISWAF. 100% aman di peramban lokal, data bertahan saat reload/refresh, siap ekspor jurnal SIAK.">
-    <link rel="canonical" href="https://ziswafierlite.vercel.app/app.html">
+    <link rel="canonical" href="https://ziswafierlite.vercel.app/app">
     <meta name="robots" content="index, follow">
     
     <!-- Content Security Policy (Jaminan 100% Keamanan & Tanpa Transmisi Server) -->
@@ -35,7 +35,7 @@
     <!-- Open Graph -->
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="ZISWAFier Lite">
-    <meta property="og:url" content="https://ziswafierlite.vercel.app/app.html">
+    <meta property="og:url" content="https://ziswafierlite.vercel.app/app">
     <meta property="og:title" content="ZISWAFier Lite — Aplikasi Rekonsiliasi &amp; Klasifikasi Mutasi Bank">
     <meta property="og:description" content="Aplikasi client-side rekonsiliasi mutasi bank rekening ZISWAF. 100% aman di browser lokal Anda.">
     <meta property="og:image" content="https://ziswafierlite.vercel.app/og-image.png">
@@ -54,7 +54,7 @@
 
     <!-- TOPBAR -->
     <header class="topbar">
-        <a href="./index.html" class="topbar-brand" style="text-decoration: none; color: inherit;" title="Kembali ke Beranda">
+        <a href="/" class="topbar-brand" style="text-decoration: none; color: inherit;" title="Kembali ke Beranda">
             <img src="./logo.png" alt="ZISWAFier Logo" class="brand-logo-img" style="width: 38px; height: 38px; border-radius: 10px;">
             <div>
                 <div class="brand-title">ZISWAFier</div>
@@ -78,14 +78,11 @@
             </button>
         </nav>
         <div class="topbar-actions">
-            <div class="topbar-privacy-badge d-none-sm" title="100% Client-Side: Pemrosesan lokal di peramban, nol data dikirim ke server. Data bertahan saat reload.">
-                <i class="fa-solid fa-shield-halved text-emerald"></i> <span>100% Offline/Lokal</span>
-            </div>
             <button class="btn btn-icon" id="btn-theme-toggle" title="Toggle tema">
                 <i class="fa-solid fa-moon" id="theme-icon"></i>
             </button>
         </div>
-        <a href="./index.html" class="btn btn-ghost btn-sm" id="btn-topbar-home" title="Kembali ke Beranda" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none;">
+        <a href="/" class="btn btn-ghost btn-sm" id="btn-topbar-home" title="Kembali ke Beranda" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none;">
             <i class="fa-solid fa-house"></i> <span class="btn-text">Beranda</span>
         </a>
     </header>
@@ -414,18 +411,6 @@
                     </button>
                 </div>
             </div>
-
-            <!-- Privacy & Storage Guarantee Card -->
-            <div class="privacy-trust-card glass mt-4">
-                <div class="d-flex align-items-center gap-2 mb-1">
-                    <i class="fa-solid fa-shield-halved text-emerald fs-5"></i>
-                    <strong class="text-xs text-emerald">100% Client-Side &amp; Privasi Terjamin (Nol Transmisi Server)</strong>
-                </div>
-                <p class="text-xs text-muted mb-0" style="line-height: 1.5;">
-                    Seluruh pemrosesan mutasi bank dan penyimpanan data berjalan <strong>100% di browser lokal perangkat Anda</strong>. Tidak ada satu pun data transaksi yang dikirim atau disimpan ke server mana pun. 
-                    <strong>Data transaksi tetap tersimpan aman dan tidak hilang saat halaman di-reload/refresh</strong>. Data hanya akan terhapus jika Anda membersihkan cookies / cache peramban atau menekan tombol reset.
-                </p>
-            </div>
         </div>
     </main>
 
@@ -471,17 +456,6 @@
                 <div class="stat-label">Butuh Review (Unauthorized)</div>
                 <div class="stat-value text-warning" id="stat-unauthorized">0</div>
             </div>
-        </div>
-
-        <!-- Local Storage & Privacy Status Strip -->
-        <div class="local-storage-indicator text-xs text-muted mb-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
-            <span class="d-inline-flex align-items-center gap-1">
-                <i class="fa-solid fa-shield-halved text-emerald"></i>
-                <span>Data transaksi tersimpan aman di peramban lokal (aman saat reload). Nol data dikirim ke server luar.</span>
-            </span>
-            <span class="text-muted" style="font-size: 0.7rem;">
-                <i class="fa-solid fa-circle-info"></i> Hanya hilang jika cookies/cache browser dibersihkan.
-            </span>
         </div>
 
         <!-- Charts Row -->
