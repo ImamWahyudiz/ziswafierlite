@@ -94,6 +94,20 @@ body {
     max-width: 100%;
     display: block;
 }
+.cell-keterangan {
+    min-width: 240px;
+    max-width: 480px;
+    white-space: normal !important;
+    word-break: break-word;
+}
+.cell-keterangan .keterangan-text {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    color: var(--text);
+    white-space: normal !important;
+    word-break: break-word;
+    display: block;
+}
 
 /* ─── TOPBAR ─────────────────────────────────────────────────────────────────── */
 .topbar {

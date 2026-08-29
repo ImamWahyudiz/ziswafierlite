@@ -55,8 +55,7 @@ function closeModal(id) { document.getElementById(id)?.classList.add('hidden'); 
 document.addEventListener('click', e => {
   const btn = e.target.closest('[data-close]');
   if (btn) closeModal(btn.dataset.close);
-  const overlay = e.target;
-  if (overlay.classList.contains('modal-overlay')) closeModal(overlay.id);
+  // Do not close modals on backdrop overlay click to prevent accidental loss of user input
 });
 
 // ─── JS Tooltip ───────────────────────────────────────────────────────────────
@@ -1453,17 +1452,16 @@ function renderTable() {
         senderClean.toLowerCase() !== labelClean.toLowerCase() && 
         !labelClean.toLowerCase().includes(senderClean.toLowerCase());
 
+      const rawText = (row.rawLabel || row.cleanedLabel || '-').trim();
+
       if (isCompact) {
         return `<tr class="${_selectedIds.has(row.id) ? 'row-selected' : ''}">
           <td><input type="checkbox" class="row-checkbox" data-id="${esc(row.id)}" ${_selectedIds.has(row.id) ? 'checked' : ''}></td>
           <td class="text-xs text-muted">${rowNum}</td>
           <td class="text-xs nowrap">${esc(row.transactionDate || '-')}</td>
           <td class="nowrap fw-semibold ${row.isExpense || row.rawAmount < 0 ? 'text-rose' : 'text-emerald'}">${fmtRp(row.rawAmount)}</td>
-          <td class="text-xs" data-tooltip="${esc(labelTooltip)}">
-            <div class="truncate-1">
-              <span class="fw-semibold">${esc(label)}</span>
-              ${showSender ? `<span class="text-muted"> (${esc(senderClean)})</span>` : ''}
-            </div>
+          <td class="text-xs cell-keterangan" data-tooltip="${esc(rawText)}">
+            <div class="keterangan-text">${esc(rawText)}</div>
           </td>
           <td data-tooltip="${esc(coaTooltip)}">
             <select class="coa-select" data-id="${esc(row.id)}">
@@ -1484,9 +1482,8 @@ function renderTable() {
           <td class="text-xs text-muted">${rowNum}</td>
           <td class="text-xs nowrap">${esc(row.transactionDate || '-')}</td>
           <td class="nowrap fw-semibold ${row.isExpense || row.rawAmount < 0 ? 'text-rose' : 'text-emerald'}">${fmtRp(row.rawAmount)}</td>
-          <td class="text-xs">
-            <div class="fw-semibold truncate-1" data-tooltip="${esc(row.rawLabel || '')}">${esc(row.rawLabel || label)}</div>
-            ${showSender ? `<div class="text-muted text-xs truncate-1" data-tooltip="${esc(senderClean)}"><i class="fa-solid fa-user-tag"></i> ${esc(senderClean)}</div>` : ''}
+          <td class="text-xs cell-keterangan" data-tooltip="${esc(rawText)}">
+            <div class="keterangan-text">${esc(rawText)}</div>
           </td>
           <td>
             <select class="coa-select" data-id="${esc(row.id)}">

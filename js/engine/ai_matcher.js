@@ -35,8 +35,11 @@ ${itemsJson}
 
 Instruksi:
 1. Analisis deskripsi transaksi dan cocokkan dengan program & COA yang paling relevan.
-2. Pertimbangkan konteks syariah, istilah zakat/infak/sedekah/wakaf/dskl/fidyah/kurban/operasional.
-3. Kembalikan HANYA JSON murni berupa array objek [ {...}, {...} ] tanpa markdown backticks, tanpa penjelasan di luar JSON.
+2. JANGAN MENEBAK ke Infak Umum atau program lain jika transaksi HANYA berupa nama orang tanpa keterangan, atau hanya berupa kode transaksi/nomor referensi acak (seperti Z1Z91, TRX123, NOREF). Untuk transaksi tanpa keterangan atau kode acak, kembalikan confidence: 0.0 dan reason: "Tidak ada keterangan program (Unauthorized)".
+3. Dalam akuntansi syariah (PSAK 109), dana tanpa kejelasan niat/program dari donatur TIDAK BOLEH dialokasikan ke Infak Umum, melainkan harus masuk Unauthorized (Karantina).
+4. Pengetatan kata kunci: Jangan pernah mencocokkan kode singkatan acak (seperti Z1Z91) ke Zakat Maal hanya karena ada huruf Z. Cocokkan hanya jika kata kunci program memang tertulis jelas (seperti ZMAL, MAAL, ZAKAT).
+5. Pertimbangkan konteks syariah, istilah zakat/infak/sedekah/wakaf/dskl/fidyah/kurban/operasional.
+6. Kembalikan HANYA JSON murni berupa array objek [ {...}, {...} ] tanpa markdown backticks, tanpa penjelasan di luar JSON.
 
 Format setiap objek dalam array WAJIB persis seperti ini:
 {"id": "<id_transaksi>", "coa": <number>, "program_id": "<id_program>", "confidence": <0..1>, "reason": "<alasan singkat bahasa Indonesia>"}
@@ -102,8 +105,11 @@ ${programLines}
 
 Instruksi:
 1. Analisis deskripsi transaksi dan cocokkan dengan program & COA yang paling relevan.
-2. Pertimbangkan konteks syariah, istilah zakat/infak/sedekah/wakaf/dskl.
-3. Berikan output JSON ONLY murni, tanpa markdown backticks, tanpa penjelasan di luar JSON.
+2. JANGAN MENEBAK ke Infak Umum atau program lain jika transaksi HANYA berupa nama orang tanpa keterangan, atau hanya berupa kode transaksi/nomor referensi acak (seperti Z1Z91, TRX123, NOREF). Untuk transaksi tanpa keterangan atau kode acak, kembalikan confidence: 0.0 dan reason: "Tidak ada keterangan program (Unauthorized)".
+3. Dalam akuntansi syariah (PSAK 109), dana tanpa kejelasan niat/program dari donatur TIDAK BOLEH dialokasikan ke Infak Umum, melainkan harus masuk Unauthorized (Karantina).
+4. Pengetatan kata kunci: Jangan pernah mencocokkan kode singkatan acak (seperti Z1Z91) ke Zakat Maal hanya karena ada huruf Z. Cocokkan hanya jika kata kunci program memang tertulis jelas (seperti ZMAL, MAAL, ZAKAT).
+5. Pertimbangkan konteks syariah, istilah zakat/infak/sedekah/wakaf/dskl.
+6. Berikan output JSON ONLY murni, tanpa markdown backticks, tanpa penjelasan di luar JSON.
 
 WAJIB output JSON dalam format PERSIS ini:
 {"coa": <number>, "program_id": "<id>", "confidence": <0..1>, "reason": "<alasan singkat bahasa Indonesia>"}

@@ -5,6 +5,36 @@ function round4(value) {
   return Math.round(value * 10000) / 10000;
 }
 
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function matchKeywordInText(text, keyword) {
+  if (!text || !keyword) return false;
+  const k = String(keyword).trim().toLowerCase();
+  if (k.length < 2) return false; // Strict guard: single char keywords (like 'z') are ignored
+  
+  const t = String(text).toLowerCase();
+  const pattern = new RegExp(`(^|[^a-z0-9])${escapeRe(k)}([^a-z0-9]|$)`, 'i');
+  return pattern.test(t);
+}
+
+export function isSenderNameOnly(cleanedLabel, extractedSenderName) {
+  if (!extractedSenderName || !cleanedLabel) return false;
+  const c = cleanedLabel.toLowerCase().trim();
+  const s = extractedSenderName.toLowerCase().trim();
+  if (!c || !s) return false;
+  if (c === s) return true;
+
+  const sTokens = s.split(/\s+/).filter(tok => tok.length >= 2);
+  let remaining = c;
+  for (const tok of sTokens) {
+    remaining = remaining.replace(new RegExp(`(^|[^a-z0-9])${escapeRe(tok)}([^a-z0-9]|$)`, 'gi'), ' ');
+  }
+  remaining = remaining.replace(/\b(trf|cr|dr|dari|ke|via|bifast|transfer|bank|bca|bni|bri|mandiri|bsi)\b/gi, ' ').trim();
+  return remaining.length === 0;
+}
+
 export async function classifySingle(tx, master) {
   const { settings, coaList, programs, donors } = master;
   const expenseCoa = settings.expenseCoa;
@@ -34,8 +64,6 @@ export async function classifySingle(tx, master) {
   result.cleanedLabel = cleanedLabel;
   result.extractedSenderName = extractedSenderName;
   result.companyAliasMatched = companyAliasMatched;
-  
-  const cleanedLower = cleanedLabel.toLowerCase();
   
   const rawLower = String(tx.rawLabel || '').toLowerCase();
   if (tx.rawAmount < 0 || rawLower.includes('trf ke') || rawLower.includes('biaya')) {
@@ -96,8 +124,7 @@ export async function classifySingle(tx, master) {
       let keywordOverrideFound = false;
       for (const prog of programs) {
         for (const k of prog.keywords) {
-          const ktrimmed = k?.trim().toLowerCase();
-          if (ktrimmed && cleanedLower.includes(ktrimmed)) {
+          if (matchKeywordInText(cleanedLabel, k)) {
             targetCoa = prog.coaCode;
             targetProgram = prog.id;
             keywordOverrideFound = true;
@@ -119,17 +146,40 @@ export async function classifySingle(tx, master) {
   
   for (const prog of programs) {
     for (const k of prog.keywords) {
-      const ktrimmed = k?.trim().toLowerCase();
-      if (ktrimmed && cleanedLower.includes(ktrimmed)) {
+      if (matchKeywordInText(cleanedLabel, k)) {
         result.assignedCoa = prog.coaCode;
         result.assignedCoaName = coaList.find(c => c.code === prog.coaCode)?.name || '';
         result.assignedProgramId = prog.id;
         result.matchedLayer = 'KEYWORD';
         result.confidence = 0.90;
-        result.reasoning = `Deskripsi cocok dengan kata kunci '${ktrimmed}' pada program ${prog.name}`;
+        result.reasoning = `Deskripsi cocok dengan kata kunci '${k}' pada program ${prog.name}`;
         return result;
       }
     }
+  }
+
+  // Guard against AI hallucinating on name-only or code-only transactions:
+  const isNameOnly = isSenderNameOnly(cleanedLabel, extractedSenderName);
+  const isCodeOnly = /^[a-z0-9_-]{1,10}$/i.test(cleanedLabel.trim());
+
+  if (isNameOnly) {
+    result.assignedCoa = defaultUnauthorizedCoa;
+    result.assignedCoaName = coaList.find(c => c.code === defaultUnauthorizedCoa)?.name || '';
+    result.assignedProgramId = null;
+    result.matchedLayer = 'UNAUTHORIZED_FALLBACK';
+    result.confidence = 0.0;
+    result.reasoning = 'Mutasi hanya berisi nama pengirim tanpa keterangan program (Karantina / Unauthorized)';
+    return result;
+  }
+
+  if (isCodeOnly) {
+    result.assignedCoa = defaultUnauthorizedCoa;
+    result.assignedCoaName = coaList.find(c => c.code === defaultUnauthorizedCoa)?.name || '';
+    result.assignedProgramId = null;
+    result.matchedLayer = 'UNAUTHORIZED_FALLBACK';
+    result.confidence = 0.0;
+    result.reasoning = 'Deskripsi hanya berupa kode referensi tanpa kata kunci program (Karantina / Unauthorized)';
+    return result;
   }
   
   if (settings.aiMode !== 'OFF' && cleanedLabel) {
@@ -262,8 +312,7 @@ export async function classifyBatch(rows, master, onProgress) {
 
         for (const prog of programs) {
           for (const k of prog.keywords) {
-            const ktrimmed = k?.trim().toLowerCase();
-            if (ktrimmed && cleanedLower.includes(ktrimmed)) {
+            if (matchKeywordInText(cleanedLabel, k)) {
               targetCoa = prog.coaCode;
               targetProgram = prog.id;
               break;
@@ -286,14 +335,13 @@ export async function classifyBatch(rows, master, onProgress) {
     let keywordMatched = false;
     for (const prog of programs) {
       for (const k of prog.keywords) {
-        const ktrimmed = k?.trim().toLowerCase();
-        if (ktrimmed && cleanedLower.includes(ktrimmed)) {
+        if (matchKeywordInText(cleanedLabel, k)) {
           item.assignedCoa = prog.coaCode;
           item.assignedCoaName = coaList.find(c => c.code === prog.coaCode)?.name || '';
           item.assignedProgramId = prog.id;
           item.matchedLayer = 'KEYWORD';
           item.confidence = 0.90;
-          item.reasoning = `Deskripsi cocok dengan kata kunci '${ktrimmed}' pada program ${prog.name}`;
+          item.reasoning = `Deskripsi cocok dengan kata kunci '${k}' pada program ${prog.name}`;
           keywordMatched = true;
           break;
         }
@@ -301,6 +349,32 @@ export async function classifyBatch(rows, master, onProgress) {
       if (keywordMatched) break;
     }
     if (keywordMatched) {
+      results.push(item);
+      continue;
+    }
+
+    // Guard against AI hallucinating on name-only or code-only transactions:
+    const isNameOnly = isSenderNameOnly(cleanedLabel, extractedSenderName);
+    const isCodeOnly = /^[a-z0-9_-]{1,10}$/i.test(cleanedLabel.trim());
+
+    if (isNameOnly) {
+      item.assignedCoa = defaultUnauthorizedCoa;
+      item.assignedCoaName = coaList.find(c => c.code === defaultUnauthorizedCoa)?.name || '';
+      item.assignedProgramId = null;
+      item.matchedLayer = 'UNAUTHORIZED_FALLBACK';
+      item.confidence = 0.0;
+      item.reasoning = 'Mutasi hanya berisi nama pengirim tanpa keterangan program (Karantina / Unauthorized)';
+      results.push(item);
+      continue;
+    }
+
+    if (isCodeOnly) {
+      item.assignedCoa = defaultUnauthorizedCoa;
+      item.assignedCoaName = coaList.find(c => c.code === defaultUnauthorizedCoa)?.name || '';
+      item.assignedProgramId = null;
+      item.matchedLayer = 'UNAUTHORIZED_FALLBACK';
+      item.confidence = 0.0;
+      item.reasoning = 'Deskripsi hanya berupa kode referensi tanpa kata kunci program (Karantina / Unauthorized)';
       results.push(item);
       continue;
     }
