@@ -1,10 +1,18 @@
-import { getMaster, updateMaster, resetToDefaults, subscribe as subscribeMaster, exportConfigToJson, importConfigFromJson, importMasterFromExcel, addCoa, updateCoa, deleteCoa, addProgram, updateProgram, deleteProgram, addDonor, updateDonor, deleteDonor, addAlias, deleteAlias } from "./store/master_store.js";
+import {
+  getMaster, updateMaster, resetToDefaults, subscribe as subscribeMaster,
+  exportConfigToJson, importConfigFromJson, importMasterFromExcel, getSystemCodes,
+  addCoa, updateCoa, deleteCoa, batchDeleteCoa,
+  addProgram, updateProgram, deleteProgram, batchDeletePrograms,
+  addDonor, updateDonor, deleteDonor, batchDeleteDonors,
+  addAlias, deleteAlias, batchDeleteAliases
+} from "./store/master_store.js";
+import { sanitizeInputText, sanitizeSlug, sanitizePhone, sanitizeCoaCode } from "./engine/sanitizer.js";
 import { classifyBatch } from "./engine/classifier.js";
 import { testAIConnection } from "./engine/ai_matcher.js";
 import { parseBankStatement, exportOdooExcel, exportOdooCsv } from "./services/excel_adapter.js";
 import {
-  getRows, getRowCount, setRows, mergeRows, updateRow, bulkUpdateRows, clearRows,
-  getFilteredSorted, getPagedRows, getStats, getFilter, setFilter, getSortState, setSort,
+  getRows, getRowCount, setRows, mergeRows, updateRow, bulkUpdateRows, deleteRows, restoreRows, clearRows,
+  getFilteredSorted, getPagedRows, getStats, getFilter, setFilter, getSortState, setSort, getRowsByPeriod,
   getPage, setPage, getProgramTotals, getCategoryTotals, MAX_SESSION_ROWS
 } from "./store/session_store.js";
 
@@ -156,23 +164,100 @@ function renderConfigPage() {
   renderSystemCoaSettings(m);
 }
 
-// — COA —
-function getSystemCodes(m) {
-  const s = m.settings || {};
-  return {
-    unauth: s.defaultUnauthorizedCoa || 40201000,
-    umum:   s.defaultBaselineCoa    || 40201001,
-    expense: s.expenseCoa           || 60100008,
-  };
+// ─── Master Data State & Selection ───────────────────────────────────────────
+let _selectedCoa = new Set();
+let _selectedPrograms = new Set();
+let _selectedDonors = new Set();
+let _selectedAliases = new Set();
+
+function updateCoaSelectionUI() {
+  const m = getMaster();
+  const count = _selectedCoa.size;
+  const statusEl = document.getElementById('coa-selection-status');
+  const badgeEl = document.getElementById('coa-selected-badge');
+  const selectAllCb = document.getElementById('coa-select-all');
+
+  if (statusEl && badgeEl) {
+    if (count > 0) {
+      statusEl.classList.remove('hidden');
+      badgeEl.textContent = `${count} COA dicentang`;
+    } else {
+      statusEl.classList.add('hidden');
+    }
+  }
+  if (selectAllCb) {
+    selectAllCb.checked = count > 0 && count === m.coaList.length;
+    selectAllCb.indeterminate = count > 0 && count < m.coaList.length;
+  }
 }
 
+function updateProgramSelectionUI() {
+  const m = getMaster();
+  const count = _selectedPrograms.size;
+  const statusEl = document.getElementById('program-selection-status');
+  const badgeEl = document.getElementById('program-selected-badge');
+  const selectAllCb = document.getElementById('program-select-all');
+
+  if (statusEl && badgeEl) {
+    if (count > 0) {
+      statusEl.classList.remove('hidden');
+      badgeEl.textContent = `${count} program dicentang`;
+    } else {
+      statusEl.classList.add('hidden');
+    }
+  }
+  if (selectAllCb) {
+    selectAllCb.checked = count > 0 && count === m.programs.length;
+    selectAllCb.indeterminate = count > 0 && count < m.programs.length;
+  }
+}
+
+function updateDonorSelectionUI() {
+  const m = getMaster();
+  const count = _selectedDonors.size;
+  const statusEl = document.getElementById('donor-selection-status');
+  const badgeEl = document.getElementById('donor-selected-badge');
+  const selectAllCb = document.getElementById('donor-select-all');
+
+  if (statusEl && badgeEl) {
+    if (count > 0) {
+      statusEl.classList.remove('hidden');
+      badgeEl.textContent = `${count} donatur dicentang`;
+    } else {
+      statusEl.classList.add('hidden');
+    }
+  }
+  if (selectAllCb) {
+    selectAllCb.checked = count > 0 && count === m.donors.length;
+    selectAllCb.indeterminate = count > 0 && count < m.donors.length;
+  }
+}
+
+function updateAliasSelectionUI() {
+  const count = _selectedAliases.size;
+  const statusEl = document.getElementById('alias-selection-status');
+  const badgeEl = document.getElementById('alias-selected-badge');
+
+  if (statusEl && badgeEl) {
+    if (count > 0) {
+      statusEl.classList.remove('hidden');
+      badgeEl.textContent = `${count} alias dicentang`;
+    } else {
+      statusEl.classList.add('hidden');
+    }
+  }
+}
+
+// ─── COA ──────────────────────────────────────────────────────────────────────
 function renderCoaTable(m) {
   const sys = getSystemCodes(m);
   const sysSet = new Set([sys.unauth, sys.umum, sys.expense]);
   document.getElementById('tbody-coa').innerHTML = m.coaList.map((c, i) => {
     const isSysMapped = sysSet.has(c.code);
     const sysLabel = c.code === sys.unauth ? 'Unauthorized' : c.code === sys.umum ? 'Infak Umum' : c.code === sys.expense ? 'Beban' : '';
+    const isChecked = _selectedCoa.has(i);
     return `<tr>
+      <td><input type="checkbox" class="coa-row-checkbox" data-idx="${i}" ${isChecked ? 'checked' : ''}></td>
       <td><code>${esc(c.code)}</code></td>
       <td>${esc(c.name)}${isSysMapped ? ` <span class="badge-sys" title="Dipetakan sebagai default ${sysLabel}">${sysLabel}</span>` : ''}</td>
       <td><span class="badge-cat">${esc(c.category || 'UMUM')}</span></td>
@@ -181,8 +266,49 @@ function renderCoaTable(m) {
         <button class="btn-icon-sm text-danger" data-action="del-coa" data-idx="${i}" title="Hapus"${isSysMapped ? ' disabled' : ''}><i class="fa-solid fa-trash"></i></button>
       </td>
     </tr>`;
-  }).join('') || '<tr><td colspan="4" class="empty-state">Belum ada COA.</td></tr>';
+  }).join('') || '<tr><td colspan="5" class="empty-state">Belum ada COA.</td></tr>';
+
+  updateCoaSelectionUI();
 }
+
+document.getElementById('coa-select-all')?.addEventListener('change', e => {
+  const m = getMaster();
+  if (e.target.checked) {
+    m.coaList.forEach((_, i) => _selectedCoa.add(i));
+  } else {
+    _selectedCoa.clear();
+  }
+  document.querySelectorAll('.coa-row-checkbox').forEach(cb => {
+    cb.checked = e.target.checked;
+  });
+  updateCoaSelectionUI();
+});
+
+document.getElementById('tbody-coa')?.addEventListener('change', e => {
+  const cb = e.target.closest('.coa-row-checkbox');
+  if (!cb) return;
+  const idx = parseInt(cb.dataset.idx, 10);
+  if (cb.checked) {
+    _selectedCoa.add(idx);
+  } else {
+    _selectedCoa.delete(idx);
+  }
+  updateCoaSelectionUI();
+});
+
+document.getElementById('btn-batch-delete-coa')?.addEventListener('click', () => {
+  if (_selectedCoa.size === 0) return;
+  const count = _selectedCoa.size;
+  if (!confirm(`Hapus ${count} akun COA terpilih?`)) return;
+  try {
+    const deleted = batchDeleteCoa(Array.from(_selectedCoa));
+    _selectedCoa.clear();
+    renderConfigPage();
+    showToast(`${deleted} akun COA berhasil dihapus`, 'success');
+  } catch (err) {
+    showToast('Gagal menghapus: ' + err.message, 'error');
+  }
+});
 
 document.getElementById('btn-add-coa').addEventListener('click', () => {
   document.getElementById('coa-edit-idx').value = '';
@@ -214,48 +340,98 @@ document.getElementById('tbody-coa').addEventListener('click', e => {
       return;
     }
     if (confirm(`Hapus COA ${c.code} - ${c.name}?`)) {
-      const newList = m.coaList.filter((_, i) => i !== idx);
-      updateMaster({ coaList: newList });
-      renderConfigPage();
+      try {
+        deleteCoa(idx);
+        _selectedCoa.delete(idx);
+        renderConfigPage();
+        showToast('COA berhasil dihapus', 'success');
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
     }
   }
 });
 
 document.getElementById('btn-save-coa').addEventListener('click', () => {
-  const code = parseInt(document.getElementById('coa-code').value);
-  const name = document.getElementById('coa-name').value.trim();
-  const category = document.getElementById('coa-category').value.trim() || 'UMUM';
-  if (!code || !name) { showToast('Kode dan Nama Akun wajib diisi', 'error'); return; }
-  const m = getMaster();
+  const code = sanitizeCoaCode(document.getElementById('coa-code').value);
+  const name = sanitizeInputText(document.getElementById('coa-name').value, 120);
+  const category = sanitizeInputText(document.getElementById('coa-category').value, 50) || 'UMUM';
+  if (!code || !name) { showToast('Kode Akun (angka) dan Nama Akun wajib diisi dengan benar', 'error'); return; }
+
   const idx = document.getElementById('coa-edit-idx').value;
-  const newList = [...m.coaList];
-  if (idx === '') {
-    if (newList.some(c => c.code === code)) { showToast('Kode COA sudah ada', 'error'); return; }
-    newList.push({ code, name, category });
-    newList.sort((a, b) => a.code - b.code);
-  } else {
-    newList[parseInt(idx)] = { code, name, category };
+  try {
+    if (idx === '') {
+      addCoa({ code, name, category });
+    } else {
+      updateCoa(parseInt(idx, 10), { code, name, category });
+    }
+    closeModal('modal-coa');
+    renderConfigPage();
+    showToast('COA berhasil disimpan', 'success');
+  } catch (err) {
+    showToast(err.message, 'error');
   }
-  updateMaster({ coaList: newList });
-  closeModal('modal-coa');
-  renderConfigPage();
-  showToast('COA berhasil disimpan', 'success');
 });
 
-// — Program —
+// ─── PROGRAM ──────────────────────────────────────────────────────────────────
 function renderProgramTable(m) {
-  document.getElementById('tbody-program').innerHTML = m.programs.map((p, i) => `<tr>
-    <td><code>${esc(p.id)}</code></td>
-    <td>${esc(p.name)}</td>
-    <td><code>${esc(p.coaCode)}</code></td>
-    <td><code>${esc(p.tailCode || '-')}</code></td>
-    <td class="text-xs text-muted">${esc((p.keywords || []).slice(0, 3).join(', '))}</td>
-    <td>
-      <button class="btn-icon-sm" data-action="edit-prog" data-idx="${i}" title="Edit"><i class="fa-solid fa-pen"></i></button>
-      <button class="btn-icon-sm text-danger" data-action="del-prog" data-idx="${i}" title="Hapus"><i class="fa-solid fa-trash"></i></button>
-    </td>
-  </tr>`).join('') || '<tr><td colspan="6" class="empty-state">Belum ada program.</td></tr>';
+  document.getElementById('tbody-program').innerHTML = m.programs.map((p, i) => {
+    const isChecked = _selectedPrograms.has(i);
+    return `<tr>
+      <td><input type="checkbox" class="program-row-checkbox" data-idx="${i}" ${isChecked ? 'checked' : ''}></td>
+      <td><code>${esc(p.id)}</code></td>
+      <td>${esc(p.name)}</td>
+      <td><code>${esc(p.coaCode)}</code></td>
+      <td><code>${esc(p.tailCode || '-')}</code></td>
+      <td class="text-xs text-muted">${esc((p.keywords || []).slice(0, 3).join(', '))}</td>
+      <td>
+        <button class="btn-icon-sm" data-action="edit-prog" data-idx="${i}" title="Edit"><i class="fa-solid fa-pen"></i></button>
+        <button class="btn-icon-sm text-danger" data-action="del-prog" data-idx="${i}" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+      </td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7" class="empty-state">Belum ada program.</td></tr>';
+
+  updateProgramSelectionUI();
 }
+
+document.getElementById('program-select-all')?.addEventListener('change', e => {
+  const m = getMaster();
+  if (e.target.checked) {
+    m.programs.forEach((_, i) => _selectedPrograms.add(i));
+  } else {
+    _selectedPrograms.clear();
+  }
+  document.querySelectorAll('.program-row-checkbox').forEach(cb => {
+    cb.checked = e.target.checked;
+  });
+  updateProgramSelectionUI();
+});
+
+document.getElementById('tbody-program')?.addEventListener('change', e => {
+  const cb = e.target.closest('.program-row-checkbox');
+  if (!cb) return;
+  const idx = parseInt(cb.dataset.idx, 10);
+  if (cb.checked) {
+    _selectedPrograms.add(idx);
+  } else {
+    _selectedPrograms.delete(idx);
+  }
+  updateProgramSelectionUI();
+});
+
+document.getElementById('btn-batch-delete-program')?.addEventListener('click', () => {
+  if (_selectedPrograms.size === 0) return;
+  const count = _selectedPrograms.size;
+  if (!confirm(`Hapus ${count} program terpilih?`)) return;
+  try {
+    const deleted = batchDeletePrograms(Array.from(_selectedPrograms));
+    _selectedPrograms.clear();
+    renderConfigPage();
+    showToast(`${deleted} program berhasil dihapus`, 'success');
+  } catch (err) {
+    showToast('Gagal menghapus: ' + err.message, 'error');
+  }
+});
 
 function populateProgramCoaSelect() {
   const m = getMaster();
@@ -290,41 +466,45 @@ document.getElementById('tbody-program').addEventListener('click', e => {
     openModal('modal-program');
   } else if (btn.dataset.action === 'del-prog') {
     if (confirm(`Hapus program "${m.programs[idx].name}"?`)) {
-      const newList = m.programs.filter((_, i) => i !== idx);
-      updateMaster({ programs: newList });
+      deleteProgram(idx);
+      _selectedPrograms.delete(idx);
       renderConfigPage();
+      showToast('Program berhasil dihapus', 'success');
     }
   }
 });
 
 document.getElementById('btn-save-program').addEventListener('click', () => {
-  const id = document.getElementById('program-id').value.trim();
-  const name = document.getElementById('program-name').value.trim();
-  if (!id || !name) { showToast('ID dan Nama Program wajib diisi', 'error'); return; }
-  const coaCode = parseInt(document.getElementById('program-coa').value) || 0;
-  const tailCode = document.getElementById('program-tail').value.trim();
-  const keywords = document.getElementById('program-keywords').value.split(';').map(k => k.trim()).filter(Boolean);
-  const description = document.getElementById('program-desc').value.trim();
-  const m = getMaster();
+  const id = sanitizeSlug(document.getElementById('program-id').value, 50);
+  const name = sanitizeInputText(document.getElementById('program-name').value, 120);
+  if (!id || !name) { showToast('ID dan Nama Program wajib diisi dengan benar', 'error'); return; }
+  const coaCode = sanitizeCoaCode(document.getElementById('program-coa').value) || 0;
+  const tailCode = sanitizeInputText(document.getElementById('program-tail').value, 10);
+  const keywords = document.getElementById('program-keywords').value.split(/[;,]/).map(k => sanitizeInputText(k, 50)).filter(Boolean);
+  const description = sanitizeInputText(document.getElementById('program-desc').value, 500);
   const idx = document.getElementById('program-edit-idx').value;
-  const newList = [...m.programs];
-  if (idx === '') {
-    if (newList.some(p => p.id === id)) { showToast('ID Program sudah ada', 'error'); return; }
-    newList.push({ id, name, coaCode, tailCode, keywords, description });
-  } else {
-    newList[parseInt(idx)] = { id, name, coaCode, tailCode, keywords, description };
+
+  try {
+    if (idx === '') {
+      addProgram({ id, name, coaCode, tailCode, keywords, description });
+    } else {
+      updateProgram(parseInt(idx, 10), { id, name, coaCode, tailCode, keywords, description });
+    }
+    closeModal('modal-program');
+    renderConfigPage();
+    showToast('Program berhasil disimpan', 'success');
+  } catch (err) {
+    showToast(err.message, 'error');
   }
-  updateMaster({ programs: newList });
-  closeModal('modal-program');
-  renderConfigPage();
-  showToast('Program berhasil disimpan', 'success');
 });
 
-// — Donor —
+// ─── DONATUR ──────────────────────────────────────────────────────────────────
 function renderDonorTable(m) {
   document.getElementById('tbody-donor').innerHTML = m.donors.map((d, i) => {
     const prog = m.programs.find(p => p.id === d.defaultProgramId);
+    const isChecked = _selectedDonors.has(i);
     return `<tr>
+      <td><input type="checkbox" class="donor-row-checkbox" data-idx="${i}" ${isChecked ? 'checked' : ''}></td>
       <td>${esc(d.name)}</td>
       <td>${esc(d.phone || '-')}</td>
       <td class="text-xs">${esc(prog ? prog.name : 'Umum')}</td>
@@ -333,8 +513,49 @@ function renderDonorTable(m) {
         <button class="btn-icon-sm text-danger" data-action="del-donor" data-idx="${i}" title="Hapus"><i class="fa-solid fa-trash"></i></button>
       </td>
     </tr>`;
-  }).join('') || '<tr><td colspan="4" class="empty-state">Belum ada donatur tetap.</td></tr>';
+  }).join('') || '<tr><td colspan="5" class="empty-state">Belum ada donatur tetap.</td></tr>';
+
+  updateDonorSelectionUI();
 }
+
+document.getElementById('donor-select-all')?.addEventListener('change', e => {
+  const m = getMaster();
+  if (e.target.checked) {
+    m.donors.forEach((_, i) => _selectedDonors.add(i));
+  } else {
+    _selectedDonors.clear();
+  }
+  document.querySelectorAll('.donor-row-checkbox').forEach(cb => {
+    cb.checked = e.target.checked;
+  });
+  updateDonorSelectionUI();
+});
+
+document.getElementById('tbody-donor')?.addEventListener('change', e => {
+  const cb = e.target.closest('.donor-row-checkbox');
+  if (!cb) return;
+  const idx = parseInt(cb.dataset.idx, 10);
+  if (cb.checked) {
+    _selectedDonors.add(idx);
+  } else {
+    _selectedDonors.delete(idx);
+  }
+  updateDonorSelectionUI();
+});
+
+document.getElementById('btn-batch-delete-donor')?.addEventListener('click', () => {
+  if (_selectedDonors.size === 0) return;
+  const count = _selectedDonors.size;
+  if (!confirm(`Hapus ${count} donatur terpilih?`)) return;
+  try {
+    const deleted = batchDeleteDonors(Array.from(_selectedDonors));
+    _selectedDonors.clear();
+    renderConfigPage();
+    showToast(`${deleted} donatur berhasil dihapus`, 'success');
+  } catch (err) {
+    showToast('Gagal menghapus: ' + err.message, 'error');
+  }
+});
 
 function populateDonorProgramSelect(selectedId) {
   const m = getMaster();
@@ -367,65 +588,106 @@ document.getElementById('tbody-donor').addEventListener('click', e => {
     openModal('modal-donor');
   } else if (btn.dataset.action === 'del-donor') {
     if (confirm(`Hapus donatur "${m.donors[idx].name}"?`)) {
-      const newList = m.donors.filter((_, i) => i !== idx);
-      updateMaster({ donors: newList });
+      deleteDonor(idx);
+      _selectedDonors.delete(idx);
       renderConfigPage();
+      showToast('Donatur berhasil dihapus', 'success');
     }
   }
 });
 
 document.getElementById('btn-save-donor').addEventListener('click', () => {
-  const name = document.getElementById('donor-name').value.trim();
+  const name = sanitizeInputText(document.getElementById('donor-name').value, 100);
   if (!name) { showToast('Nama Donatur wajib diisi', 'error'); return; }
-  const phone = document.getElementById('donor-phone').value.trim();
-  const defaultProgramId = document.getElementById('donor-program').value;
-  const m = getMaster();
+  const phone = sanitizePhone(document.getElementById('donor-phone').value, 25);
+  const defaultProgramId = sanitizeSlug(document.getElementById('donor-program').value, 50);
   const idx = document.getElementById('donor-edit-idx').value;
-  const newList = [...m.donors];
-  const entry = { id: `donor-${Date.now()}`, name, phone, defaultProgramId, defaultCoa: getSystemCodes(m).umum };
-  if (idx === '') {
-    newList.push(entry);
-  } else {
-    newList[parseInt(idx)] = { ...newList[parseInt(idx)], name, phone, defaultProgramId };
+
+  try {
+    if (idx === '') {
+      addDonor({ name, phone, defaultProgramId });
+    } else {
+      updateDonor(parseInt(idx, 10), { name, phone, defaultProgramId });
+    }
+    closeModal('modal-donor');
+    renderConfigPage();
+    showToast('Donatur berhasil disimpan', 'success');
+  } catch (err) {
+    showToast(err.message, 'error');
   }
-  updateMaster({ donors: newList });
-  closeModal('modal-donor');
-  renderConfigPage();
-  showToast('Donatur berhasil disimpan', 'success');
 });
 
-// — Alias —
+// ─── ALIAS ────────────────────────────────────────────────────────────────────
 function renderAliasList(m) {
   const list = m.companyAliases || [];
-  document.getElementById('alias-list').innerHTML = list.map((a, i) => `
+  document.getElementById('alias-list').innerHTML = list.map((a, i) => {
+    const isChecked = _selectedAliases.has(i);
+    return `
     <div class="alias-item">
+      <input type="checkbox" class="alias-row-checkbox" data-idx="${i}" ${isChecked ? 'checked' : ''}>
       <span>${esc(a)}</span>
-      <button class="btn-icon-sm text-danger" data-action="del-alias" data-idx="${i}"><i class="fa-solid fa-xmark"></i></button>
-    </div>`).join('') || '<div class="text-muted text-xs p-3">Belum ada alias.</div>';
+      <button class="btn-icon-sm text-danger ms-auto" data-action="del-alias" data-idx="${i}" title="Hapus"><i class="fa-solid fa-xmark"></i></button>
+    </div>`;
+  }).join('') || '<div class="text-muted text-xs p-3">Belum ada alias.</div>';
+
+  updateAliasSelectionUI();
 }
+
+document.getElementById('alias-list')?.addEventListener('change', e => {
+  const cb = e.target.closest('.alias-row-checkbox');
+  if (!cb) return;
+  const idx = parseInt(cb.dataset.idx, 10);
+  if (cb.checked) {
+    _selectedAliases.add(idx);
+  } else {
+    _selectedAliases.delete(idx);
+  }
+  updateAliasSelectionUI();
+});
+
+document.getElementById('btn-batch-delete-alias')?.addEventListener('click', () => {
+  if (_selectedAliases.size === 0) return;
+  const count = _selectedAliases.size;
+  if (!confirm(`Hapus ${count} alias terpilih?`)) return;
+  try {
+    const deleted = batchDeleteAliases(Array.from(_selectedAliases));
+    _selectedAliases.clear();
+    renderConfigPage();
+    showToast(`${deleted} alias berhasil dihapus`, 'success');
+  } catch (err) {
+    showToast('Gagal menghapus: ' + err.message, 'error');
+  }
+});
 
 document.getElementById('btn-add-alias').addEventListener('click', () => {
   const val = prompt('Masukkan alias/nama lembaga yang akan disaring dari label mutasi:');
-  if (!val?.trim()) return;
-  const m = getMaster();
-  const aliases = [...(m.companyAliases || [])];
-  if (aliases.includes(val.trim())) { showToast('Alias sudah ada', 'error'); return; }
-  aliases.push(val.trim());
-  updateMaster({ companyAliases: aliases });
-  renderConfigPage();
+  if (!val) return;
+  const clean = sanitizeInputText(val, 100);
+  if (!clean) return;
+  try {
+    addAlias(clean);
+    renderConfigPage();
+    showToast(`Alias "${clean}" berhasil ditambahkan`, 'success');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 });
 
 document.getElementById('alias-list').addEventListener('click', e => {
   const btn = e.target.closest('[data-action="del-alias"]');
   if (!btn) return;
   const idx = parseInt(btn.dataset.idx);
-  const m = getMaster();
-  const aliases = (m.companyAliases || []).filter((_, i) => i !== idx);
-  updateMaster({ companyAliases: aliases });
-  renderConfigPage();
+  try {
+    deleteAlias(idx);
+    _selectedAliases.delete(idx);
+    renderConfigPage();
+    showToast('Alias dihapus', 'success');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 });
 
-// — AI Settings —
+// ─── AI Settings ──────────────────────────────────────────────────────────────
 function renderAiSettings(m) {
   const s = m.settings || {};
   document.getElementById('ai-mode').value = s.aiMode || 'OFF';
@@ -461,11 +723,11 @@ document.getElementById('ai-mode').addEventListener('change', e => toggleAiField
 
 document.getElementById('btn-save-ai').addEventListener('click', () => {
   const aiMode = document.getElementById('ai-mode').value;
-  const aiModelName = document.getElementById('ai-model-name').value.trim();
+  const aiModelName = sanitizeInputText(document.getElementById('ai-model-name').value, 80);
   const aiApiKey = document.getElementById('ai-api-key').value.trim();
-  const ollamaEndpoint = document.getElementById('ollama-endpoint').value.trim();
+  const ollamaEndpoint = sanitizeInputText(document.getElementById('ollama-endpoint').value, 200);
   const confidenceThreshold = parseFloat(document.getElementById('confidence-threshold').value);
-  const orgName = document.getElementById('org-name').value.trim();
+  const orgName = sanitizeInputText(document.getElementById('org-name').value, 120);
   updateMaster({ settings: { ...getMaster().settings, aiMode, aiModelName, aiApiKey, ollamaEndpoint, confidenceThreshold, orgName } });
   showToast('Pengaturan AI berhasil disimpan', 'success');
 });
@@ -497,7 +759,7 @@ document.getElementById('btn-test-ai')?.addEventListener('click', async () => {
   }
 });
 
-// — System COA Settings —
+// ─── System COA Settings ──────────────────────────────────────────────────────
 function renderSystemCoaSettings(m) {
   const sys = getSystemCodes(m);
   ['unauth','umum','expense'].forEach(key => {
@@ -511,16 +773,16 @@ function renderSystemCoaSettings(m) {
 
 ['sys-coa-unauth','sys-coa-umum','sys-coa-expense'].forEach(id => {
   document.getElementById(id)?.addEventListener('change', () => {
-    const unauth  = parseInt(document.getElementById('sys-coa-unauth').value);
-    const umum    = parseInt(document.getElementById('sys-coa-umum').value);
-    const expense = parseInt(document.getElementById('sys-coa-expense').value);
+    const unauth  = parseInt(document.getElementById('sys-coa-unauth').value, 10);
+    const umum    = parseInt(document.getElementById('sys-coa-umum').value, 10);
+    const expense = parseInt(document.getElementById('sys-coa-expense').value, 10);
     updateMaster({ settings: { ...getMaster().settings, defaultUnauthorizedCoa: unauth, defaultBaselineCoa: umum, expenseCoa: expense } });
     renderConfigPage();
     showToast('Akun Default Sistem diperbarui', 'success');
   });
 });
 
-// — Backup / Restore —
+// ─── Backup / Restore & Unified Importer ──────────────────────────────────────
 document.getElementById('btn-export-json').addEventListener('click', () => {
   const json = exportConfigToJson();
   const blob = new Blob([json], { type: 'application/json' });
@@ -536,17 +798,21 @@ document.getElementById('btn-export-json').addEventListener('click', () => {
     const XLSX = globalThis.XLSX;
     if (!XLSX) { showToast('SheetJS belum dimuat', 'error'); return; }
     let data = [];
+    let sheetName = 'Template';
     if (entity === 'coa') {
+      sheetName = 'COA';
       data = [
         { 'NO AKUN': 40201001, 'NAMA AKUN': 'Penerimaan Infak Umum', 'KATEGORI': 'INFAK / SEDEKAH' },
         { 'NO AKUN': 40202101, 'NAMA AKUN': 'Penerimaan Infak Program Pendidikan', 'KATEGORI': 'INFAK / SEDEKAH' }
       ];
     } else if (entity === 'program') {
+      sheetName = 'Program';
       data = [
         { 'ID': 'prog-001', 'NAMA PROGRAM': 'Sedekah Subuh', 'COA': 40202101, 'KODE EKOR': '101', 'KEYWORDS': 'sedekah;subuh', 'DESKRIPSI': 'Program rutin sedekah subuh' },
         { 'ID': 'prog-002', 'NAMA PROGRAM': 'Zakat Fitrah', 'COA': 40100101, 'KODE EKOR': '999', 'KEYWORDS': 'zakat;fitrah', 'DESKRIPSI': 'Zakat fitrah Ramadan' }
       ];
     } else if (entity === 'donor') {
+      sheetName = 'Donatur';
       data = [
         { 'NAMA': 'Ahmad Hidayat', 'NO HP': '08123456789', 'PROGRAM DEFAULT': 'prog-001' },
         { 'NAMA': 'Siti Nurhaliza', 'NO HP': '08129876543', 'PROGRAM DEFAULT': '' }
@@ -554,21 +820,82 @@ document.getElementById('btn-export-json').addEventListener('click', () => {
     }
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Template');
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
     XLSX.writeFile(wb, `template-${entity}.xlsx`);
     showToast(`Template ${entity.toUpperCase()} diunduh`, 'success');
   });
 });
 
-document.getElementById('input-import-json').addEventListener('change', async e => {
-  if (!e.target.files.length) return;
+let _pendingMasterImport = null;
+
+function initiateMasterImport(type, payload, fileName) {
+  _pendingMasterImport = { type, payload, fileName };
+  const promptEl = document.getElementById('master-import-prompt-text');
+  if (promptEl) {
+    promptEl.innerHTML = `Berkas <b>${esc(fileName)}</b> siap diimpor ke master data.<br>Pilih metode impor:`;
+  }
+  openModal('modal-master-import-mode');
+}
+
+document.getElementById('btn-master-import-merge')?.addEventListener('click', () => {
+  executePendingMasterImport('merge');
+});
+
+document.getElementById('btn-master-import-replace')?.addEventListener('click', () => {
+  executePendingMasterImport('replace');
+});
+
+function executePendingMasterImport(mode) {
+  if (!_pendingMasterImport) return;
+  const { type, payload, fileName } = _pendingMasterImport;
+  closeModal('modal-master-import-mode');
+  _pendingMasterImport = null;
+
   try {
-    const text = await e.target.files[0].text();
-    importConfigFromJson(text);
-    renderConfigPage();
-    showToast('Config JSON berhasil diimpor', 'success');
+    if (type === 'json') {
+      importConfigFromJson(payload, mode);
+      renderConfigPage();
+      showToast(`Config JSON berhasil ${mode === 'replace' ? 'ditimpa' : 'digabungkan'}`, 'success');
+    } else if (type === 'excel') {
+      const res = importMasterFromExcel(payload, mode);
+      renderConfigPage();
+      showToast(res.message || 'Master data berhasil diimpor', 'success');
+    }
   } catch (err) {
     showToast('Gagal impor: ' + err.message, 'error');
+  }
+}
+
+function handleMasterFileSelect(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = globalThis.XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      initiateMasterImport('excel', wb, file.name);
+    } catch (err) {
+      showToast('Gagal membaca berkas Excel/CSV: ' + err.message, 'error');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+['coa', 'program', 'donor'].forEach(entity => {
+  document.getElementById(`input-import-${entity}`)?.addEventListener('change', e => {
+    if (e.target.files[0]) handleMasterFileSelect(e.target.files[0]);
+    e.target.value = '';
+  });
+});
+
+document.getElementById('input-import-json')?.addEventListener('change', async e => {
+  if (!e.target.files.length) return;
+  const file = e.target.files[0];
+  try {
+    const text = await file.text();
+    JSON.parse(text); // validate basic json
+    initiateMasterImport('json', text, file.name);
+  } catch (err) {
+    showToast('Gagal membaca berkas JSON: ' + err.message, 'error');
   }
   e.target.value = '';
 });
@@ -578,63 +905,6 @@ document.getElementById('btn-reset-defaults').addEventListener('click', () => {
   resetToDefaults();
   renderConfigPage();
   showToast('Konfigurasi direset ke default', 'success');
-});
-
-// — Import xlsx/csv per entitas —
-function handleMasterImport(file, entity) {
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      const wb = globalThis.XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const data = globalThis.XLSX.utils.sheet_to_json(ws, { defval: '' });
-      if (!data.length) throw new Error('Berkas kosong atau tidak ada data tabel');
-      const headers = Object.keys(data[0]).map(h => h.toLowerCase().trim());
-
-      if (entity === 'coa') {
-        const hasCode = headers.some(h => /no\s*akun|no_akun|kode\s*akun|coa/.test(h));
-        const hasName = headers.some(h => /nama\s*akun|nama_akun/.test(h));
-        if (!hasCode || !hasName) throw new Error('Kolom wajib tidak ditemukan. Butuh: NO AKUN, NAMA AKUN');
-        const count = importMasterFromExcel(wb);
-        showToast(`${count} COA berhasil diimpor`, 'success');
-      } else if (entity === 'program') {
-        const hasId = headers.some(h => /^id$|id\s*program|kode\s*program/.test(h));
-        const hasName = headers.some(h => /nama\s*program|^program$|^nama$/.test(h));
-        if (!hasId || !hasName) throw new Error('Kolom wajib tidak ditemukan. Butuh: ID, NAMA PROGRAM');
-        importMasterFromExcel(wb);
-        showToast('Program berhasil diimpor', 'success');
-      } else if (entity === 'donor') {
-        const hasName = headers.some(h => /^nama$|nama\s*donatur/.test(h));
-        if (!hasName) throw new Error('Kolom wajib tidak ditemukan. Butuh: NAMA');
-        const m = getMaster();
-        const newDonors = data.map(row => {
-          const name = row['NAMA'] || row['Nama'] || row['nama'] || '';
-          const phone = row['NO HP'] || row['PHONE'] || row['phone'] || row['no hp'] || '';
-          if (!String(name).trim()) return null;
-          return { id: `donor-${Date.now()}-${Math.random()}`, name: String(name).trim(), phone: String(phone).trim(), defaultProgramId: '', defaultCoa: 40201001 };
-        }).filter(Boolean);
-        updateMaster({ donors: [...m.donors, ...newDonors] });
-        showToast(`${newDonors.length} donatur diimpor`, 'success');
-      }
-      renderConfigPage();
-    } catch (err) {
-      showToast('Import gagal: ' + err.message, 'error');
-    }
-  };
-  reader.readAsArrayBuffer(file);
-}
-
-document.getElementById('input-import-coa').addEventListener('change', e => {
-  if (e.target.files[0]) handleMasterImport(e.target.files[0], 'coa');
-  e.target.value = '';
-});
-document.getElementById('input-import-program').addEventListener('change', e => {
-  if (e.target.files[0]) handleMasterImport(e.target.files[0], 'program');
-  e.target.value = '';
-});
-document.getElementById('input-import-donor').addEventListener('change', e => {
-  if (e.target.files[0]) handleMasterImport(e.target.files[0], 'donor');
-  e.target.value = '';
 });
 
 // ─── UPLOAD PAGE ──────────────────────────────────────────────────────────────
@@ -847,13 +1117,21 @@ document.getElementById('report-period-select').addEventListener('change', e => 
   _periodFilter = e.target.value;
   const customRow = document.getElementById('custom-date-row');
   customRow.classList.toggle('hidden', _periodFilter !== 'CUSTOM');
-  if (_periodFilter !== 'CUSTOM') renderDashboard();
+  _selectedIds.clear();
+  _isGlobalSelected = false;
+  if (_periodFilter !== 'CUSTOM') {
+    _dateFrom = null;
+    _dateTo = null;
+    setFilter({ periodFilter: _periodFilter, dateFrom: null, dateTo: null });
+  }
 });
 
 document.getElementById('btn-apply-date').addEventListener('click', () => {
   _dateFrom = document.getElementById('date-from').value;
   _dateTo = document.getElementById('date-to').value;
-  renderDashboard();
+  _selectedIds.clear();
+  _isGlobalSelected = false;
+  setFilter({ periodFilter: 'CUSTOM', dateFrom: _dateFrom, dateTo: _dateTo });
 });
 
 // ─── SEARCH DEBOUNCE ──────────────────────────────────────────────────────────
@@ -862,6 +1140,8 @@ let _searchDebounce = null;
 document.getElementById('report-search-input').addEventListener('input', e => {
   if (_searchDebounce) clearTimeout(_searchDebounce);
   _searchDebounce = setTimeout(() => {
+    _selectedIds.clear();
+    _isGlobalSelected = false;
     setFilter({ searchTerm: e.target.value });
     const { total } = getPagedRows();
     const countEl = document.getElementById('search-result-count');
@@ -869,31 +1149,23 @@ document.getElementById('report-search-input').addEventListener('input', e => {
   }, 250);
 });
 document.getElementById('report-search-scope').addEventListener('change', e => {
+  _selectedIds.clear();
+  _isGlobalSelected = false;
   setFilter({ searchScope: e.target.value });
 });
 document.getElementById('report-category-select').addEventListener('change', e => {
+  _selectedIds.clear();
+  _isGlobalSelected = false;
   setFilter({ filterCategory: e.target.value });
 });
-
-function applyPeriodFilter(rows) {
-  if (_periodFilter === 'ALL') return rows;
-  const now = new Date();
-  const y = now.getFullYear(), m = now.getMonth();
-  return rows.filter(r => {
-    if (!r.transactionDate) return false;
-    const d = new Date(r.transactionDate);
-    if (_periodFilter === 'THIS_MONTH') return d.getFullYear() === y && d.getMonth() === m;
-    if (_periodFilter === 'LAST_MONTH') {
-      const lm = m === 0 ? 11 : m - 1, ly = m === 0 ? y - 1 : y;
-      return d.getFullYear() === ly && d.getMonth() === lm;
-    }
-    if (_periodFilter === 'THIS_YEAR') return d.getFullYear() === y;
-    if (_periodFilter === 'CUSTOM' && _dateFrom && _dateTo) {
-      return r.transactionDate >= _dateFrom && r.transactionDate <= _dateTo;
-    }
-    return true;
-  });
-}
+document.getElementById('card-stat-unauthorized')?.addEventListener('click', () => {
+  const select = document.getElementById('report-category-select');
+  const next = select.value === 'UNAUTHORIZED' ? 'ALL' : 'UNAUTHORIZED';
+  select.value = next;
+  _selectedIds.clear();
+  _isGlobalSelected = false;
+  setFilter({ filterCategory: next });
+});
 
 function renderDashboard() {
   const allRows = getRows();
@@ -908,14 +1180,14 @@ function renderDashboard() {
   if (emptyState) emptyState.classList.add('hidden');
   if (dashContent) dashContent.classList.remove('hidden');
 
-  const filtered = applyPeriodFilter(allRows);
+  const periodRows = getRowsByPeriod();
 
-  const inflow = filtered.filter(r => !r.isExpense && r.rawAmount > 0).reduce((s, r) => s + r.rawAmount, 0);
-  const expense = filtered.filter(r => r.isExpense || r.rawAmount < 0).reduce((s, r) => s + Math.abs(r.rawAmount), 0);
+  const inflow = periodRows.filter(r => !r.isExpense && r.rawAmount > 0).reduce((s, r) => s + r.rawAmount, 0);
+  const expense = periodRows.filter(r => r.isExpense || r.rawAmount < 0).reduce((s, r) => s + Math.abs(r.rawAmount), 0);
   const net = inflow - expense;
-  const classified = filtered.filter(r => r.matchedLayer !== 'UNAUTHORIZED_FALLBACK').length;
+  const classified = periodRows.filter(r => r.matchedLayer !== 'UNAUTHORIZED_FALLBACK').length;
   const sys = getSystemCodes(getMaster());
-  const unauthorized = filtered.filter(r => r.matchedLayer === 'UNAUTHORIZED_FALLBACK' || r.assignedCoa === sys.unauth).length;
+  const unauthorized = periodRows.filter(r => r.matchedLayer === 'UNAUTHORIZED_FALLBACK' || r.assignedCoa === sys.unauth).length;
 
   document.getElementById('stat-inflow').textContent = fmtRp(inflow);
   document.getElementById('stat-expense').textContent = fmtRp(expense);
@@ -927,9 +1199,9 @@ function renderDashboard() {
   document.getElementById('stat-classified').textContent = classified.toLocaleString('id-ID');
   document.getElementById('stat-unauthorized').textContent = unauthorized.toLocaleString('id-ID');
 
-  renderCharts(filtered);
+  renderCharts(periodRows);
   renderTable();
-  updateFooterBar(filtered);
+  updateFooterBar(periodRows);
 }
 
 function updateFooterBar(filtered) {
@@ -977,6 +1249,10 @@ function renderTop5Chart(filtered, master) {
   if (_chartTop5) { _chartTop5.destroy(); _chartTop5 = null; }
   if (!top5.length) return;
 
+  const isNarrow = (canvas.parentElement?.clientWidth && canvas.parentElement.clientWidth > 0)
+    ? canvas.parentElement.clientWidth < 450
+    : window.innerWidth < 640;
+
   _chartTop5 = new Chart(canvas, {
     type: 'bar',
     data: {
@@ -985,13 +1261,34 @@ function renderTop5Chart(filtered, master) {
     },
     options: {
       responsive: true, maintainAspectRatio: false, indexAxis: 'x',
+      onResize: (chart, size) => {
+        const shouldHide = size.width < 450;
+        if (chart.options.scales.x.ticks.display === shouldHide) {
+          chart.options.scales.x.ticks.display = !shouldHide;
+          chart.update('none');
+        }
+      },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: ctx => fmtRp(ctx.raw) + '  (' + top5[ctx.dataIndex].count + ' trx)' } }
+        tooltip: {
+          callbacks: {
+            title: items => top5[items[0]?.dataIndex]?.name || '',
+            label: ctx => fmtRp(ctx.raw) + '  (' + top5[ctx.dataIndex].count + ' trx)'
+          }
+        }
       },
       scales: {
         y: { ticks: { callback: v => 'Rp ' + (v >= 1e9 ? (v/1e9).toFixed(1)+'M' : v >= 1e6 ? (v/1e6).toFixed(0)+'jt' : v.toLocaleString('id-ID')), color: '#8b99b0', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
-        x: { ticks: { color: '#8b99b0', font: { size: 9.5 }, maxRotation: 0, autoSkip: false }, grid: { display: false } }
+        x: {
+          ticks: {
+            display: !isNarrow,
+            color: '#8b99b0',
+            font: { size: 9.5 },
+            maxRotation: 0,
+            autoSkip: true
+          },
+          grid: { display: false }
+        }
       }
     }
   });
@@ -1048,6 +1345,7 @@ function renderCatChart(filtered, sys) {
 // ─── TABLE ────────────────────────────────────────────────────────────────────
 
 let _selectedIds = new Set();
+let _isGlobalSelected = false;
 let _tableMode = localStorage.getItem('ziswaf_demo_table_mode') || 'compact';
 
 function applyTableMode() {
@@ -1174,7 +1472,8 @@ function renderTable() {
   document.getElementById('reporting-top-pagination-info').textContent =
     total ? `Menampilkan ${start}–${end} dari ${total.toLocaleString('id-ID')} transaksi` : '';
 
-  document.getElementById('report-select-all').checked = rows.length > 0 && rows.every(r => _selectedIds.has(r.id));
+  const allPageSelected = rows.length > 0 && rows.every(r => _selectedIds.has(r.id));
+  document.getElementById('report-select-all').checked = allPageSelected;
 
   document.querySelectorAll('.row-checkbox').forEach(cb => cb.addEventListener('change', onRowCheckbox));
   document.querySelectorAll('.coa-select').forEach(sel => sel.addEventListener('change', onCoaChange));
@@ -1182,6 +1481,7 @@ function renderTable() {
 
   applyTableMode();
   updateSelectionBanner();
+  updateGlobalSelectionBanner();
 }
 
 function updateSortIcons(key, dir) {
@@ -1201,19 +1501,78 @@ document.getElementById('transactions-table').addEventListener('click', e => {
   if (th) { setSort(th.dataset.sort); renderTable(); }
 });
 
+function updateGlobalSelectionBanner() {
+  const banner = document.getElementById('global-selection-banner');
+  if (!banner) return;
+  const { rows } = getPagedRows();
+  const filtered = getFilteredSorted();
+  const totalCount = filtered.length;
+  const allPageSelected = rows.length > 0 && rows.every(r => _selectedIds.has(r.id));
+
+  if (allPageSelected && totalCount > rows.length) {
+    banner.classList.remove('hidden');
+    banner.classList.add('show');
+    const isChecked = _isGlobalSelected ? 'checked' : '';
+    const activeClass = _isGlobalSelected ? 'text-emerald fw-bold' : '';
+    const countFormatted = totalCount.toLocaleString('id-ID');
+
+    banner.innerHTML = `
+      <div class="d-flex align-items-center gap-2">
+        <input type="checkbox" id="cb-global-select-scope" class="global-scope-checkbox" ${isChecked}>
+        <label for="cb-global-select-scope" class="global-scope-label ${activeClass}">
+          ${_isGlobalSelected ? `Semua <strong>${countFormatted}</strong> transaksi dipilih` : `Pilih semua <strong>${countFormatted}</strong> transaksi hasil filter ini`}
+        </label>
+      </div>
+    `;
+
+    const cbGlobal = banner.querySelector('#cb-global-select-scope');
+    if (cbGlobal) {
+      cbGlobal.addEventListener('change', e => {
+        _isGlobalSelected = e.target.checked;
+        const currentFiltered = getFilteredSorted();
+        _selectedIds.clear();
+        if (_isGlobalSelected) {
+          currentFiltered.forEach(r => _selectedIds.add(r.id));
+        } else {
+          rows.forEach(r => _selectedIds.add(r.id));
+        }
+        updateSelectionBanner();
+        updateGlobalSelectionBanner();
+        renderTable();
+      });
+    }
+  } else {
+    banner.classList.add('hidden');
+    banner.classList.remove('show');
+    banner.innerHTML = '';
+    if (!allPageSelected && _selectedIds.size === 0) {
+      _isGlobalSelected = false;
+    }
+  }
+}
+
 document.getElementById('report-select-all').addEventListener('change', e => {
   const { rows } = getPagedRows();
-  rows.forEach(r => e.target.checked ? _selectedIds.add(r.id) : _selectedIds.delete(r.id));
+  if (e.target.checked) {
+    rows.forEach(r => _selectedIds.add(r.id));
+  } else {
+    rows.forEach(r => _selectedIds.delete(r.id));
+    _isGlobalSelected = false;
+  }
+  updateSelectionBanner();
+  updateGlobalSelectionBanner();
   renderTable();
 });
 
 function onRowCheckbox(e) {
   const id = e.target.dataset.id;
   e.target.checked ? _selectedIds.add(id) : _selectedIds.delete(id);
-  updateSelectionBanner();
+  _isGlobalSelected = false;
   e.target.closest('tr').classList.toggle('row-selected', e.target.checked);
   const { rows } = getPagedRows();
   document.getElementById('report-select-all').checked = rows.length > 0 && rows.every(r => _selectedIds.has(r.id));
+  updateSelectionBanner();
+  updateGlobalSelectionBanner();
 }
 
 function onCoaChange(e) {
@@ -1236,9 +1595,23 @@ function onCoaChange(e) {
 function updateSelectionBanner() {
   const banner = document.getElementById('selection-banner');
   const badge = document.getElementById('selected-count-badge');
-  if (_selectedIds.size > 0) {
+  const btnBulkGeneral = document.getElementById('btn-bulk-general');
+  const activeFiltered = getFilteredSorted();
+  const activeFilteredIdSet = new Set(activeFiltered.map(r => r.id));
+  const validCount = _isGlobalSelected
+    ? activeFiltered.length
+    : [..._selectedIds].filter(id => activeFilteredIdSet.has(id)).length;
+
+  if (validCount > 0) {
     banner.classList.remove('hidden');
-    badge.textContent = `${_selectedIds.size} transaksi dicentang`;
+    badge.textContent = `${validCount.toLocaleString('id-ID')} transaksi dicentang`;
+
+    // Tombol "Tetapkan ke Infak Umum" hanya muncul jika memfilter status UNAUTHORIZED
+    const filter = getFilter();
+    const isUnauthorized = filter.filterCategory === 'UNAUTHORIZED';
+    if (btnBulkGeneral) {
+      btnBulkGeneral.classList.toggle('hidden', !isUnauthorized);
+    }
   } else {
     banner.classList.add('hidden');
   }
@@ -1260,7 +1633,13 @@ function showUndoToast(msg) {
   t.innerHTML = `${msg} <button class="btn-undo-inline" id="btn-undo-bulk">Urungkan</button>`;
   root.appendChild(t);
   document.getElementById('btn-undo-bulk').addEventListener('click', () => {
-    if (_undoSnapshot) { bulkUpdateRows(_undoSnapshot.ids, _undoSnapshot.patches.reduce((acc, p) => { acc[p.id] = p; return acc; }, {})); }
+    if (_undoSnapshot) {
+      if (_undoSnapshot.isDelete) {
+        restoreRows(_undoSnapshot.deletedRows);
+      } else {
+        bulkUpdateRows(_undoSnapshot.ids, _undoSnapshot.patches.reduce((acc, p) => { acc[p.id] = p; return acc; }, {}));
+      }
+    }
     if (_undoTimer) clearTimeout(_undoTimer);
     t.remove();
     renderDashboard();
@@ -1274,30 +1653,39 @@ document.getElementById('btn-bulk-general').addEventListener('click', () => {
   const master = getMaster();
   const sys = getSystemCodes(master);
   const coa = master.coaList.find(c => c.code === sys.umum);
-  const ids = [..._selectedIds];
-  _undoSnapshot = { ids, patches: getRows().filter(r => ids.includes(r.id)).map(r => ({ ...r })) };
+  const activeFiltered = getFilteredSorted();
+  const activeFilteredIdSet = new Set(activeFiltered.map(r => r.id));
+  const ids = _isGlobalSelected
+    ? activeFiltered.map(r => r.id)
+    : [..._selectedIds].filter(id => activeFilteredIdSet.has(id));
+  if (!ids.length) return;
+  _undoSnapshot = { isDelete: false, ids, patches: getRows().filter(r => ids.includes(r.id)).map(r => ({ ...r })) };
   bulkUpdateRows(ids, { assignedCoa: sys.umum, newName: coa?.name || 'Infak Umum', assignedProgramId: null, matchedLayer: 'MANUAL_OVERRIDE', isOverridden: true, confidence: 1.0, reasoning: 'Bulk set Infak Umum', isExpense: false });
   _selectedIds.clear();
+  _isGlobalSelected = false;
   renderDashboard();
   showUndoToast(`${ids.length} transaksi diset ke Infak Umum.`);
 });
 
-document.getElementById('btn-bulk-expense').addEventListener('click', () => {
-  const master = getMaster();
-  const sys = getSystemCodes(master);
-  const coa = master.coaList.find(c => c.code === sys.expense);
-  const ids = [..._selectedIds];
-  _undoSnapshot = { ids, patches: getRows().filter(r => ids.includes(r.id)).map(r => ({ ...r })) };
-  bulkUpdateRows(ids, { assignedCoa: sys.expense, newName: coa?.name || 'Beban Lain-Lain', assignedProgramId: null, matchedLayer: 'EXPENSE', isOverridden: true, confidence: 1.0, reasoning: 'Bulk set Beban', isExpense: true });
-  _selectedIds.clear();
-  renderDashboard();
-  showUndoToast(`${ids.length} transaksi diset ke Beban.`);
-});
+document.getElementById('btn-bulk-delete').addEventListener('click', () => {
+  const activeFiltered = getFilteredSorted();
+  const activeFilteredIdSet = new Set(activeFiltered.map(r => r.id));
+  const ids = _isGlobalSelected
+    ? activeFiltered.map(r => r.id)
+    : [..._selectedIds].filter(id => activeFilteredIdSet.has(id));
+  if (!ids.length) return;
 
-document.getElementById('btn-bulk-clear').addEventListener('click', () => {
+  if (!confirm(`Apakah Anda yakin ingin menghapus ${ids.length} transaksi yang dicentang?`)) {
+    return;
+  }
+
+  const deletedRows = getRows().filter(r => ids.includes(r.id)).map(r => ({ ...r }));
+  _undoSnapshot = { isDelete: true, deletedRows };
+  deleteRows(ids);
   _selectedIds.clear();
-  renderTable();
-  updateSelectionBanner();
+  _isGlobalSelected = false;
+  renderDashboard();
+  showUndoToast(`${ids.length} transaksi berhasil dihapus.`);
 });
 
 // ─── PAGINATION ───────────────────────────────────────────────────────────────
@@ -1367,7 +1755,11 @@ document.getElementById('btn-open-wa').addEventListener('click', () => {
 // ─── EXPORT ───────────────────────────────────────────────────────────────────
 
 document.getElementById('btn-export-xlsx').addEventListener('click', () => {
-  const rows = getRows();
+  const activeFiltered = getFilteredSorted();
+  const activeFilteredIdSet = new Set(activeFiltered.map(r => r.id));
+  const rows = _selectedIds.size > 0
+    ? activeFiltered.filter(r => _selectedIds.has(r.id))
+    : activeFiltered;
   if (!rows.length) { showToast('Tidak ada data untuk diekspor', 'error'); return; }
   try {
     const bytes = exportOdooExcel(rows);
@@ -1375,12 +1767,16 @@ document.getElementById('btn-export-xlsx').addEventListener('click', () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = `jurnal-ziswaf-${new Date().toISOString().slice(0,10)}.xlsx`; a.click();
     URL.revokeObjectURL(url);
-    showToast('Jurnal .xlsx diekspor', 'success');
+    showToast(`${rows.length} transaksi diekspor ke .xlsx`, 'success');
   } catch (err) { showToast('Gagal ekspor: ' + err.message, 'error'); }
 });
 
 document.getElementById('btn-export-csv2').addEventListener('click', () => {
-  const rows = getRows();
+  const activeFiltered = getFilteredSorted();
+  const activeFilteredIdSet = new Set(activeFiltered.map(r => r.id));
+  const rows = _selectedIds.size > 0
+    ? activeFiltered.filter(r => _selectedIds.has(r.id))
+    : activeFiltered;
   if (!rows.length) { showToast('Tidak ada data untuk diekspor', 'error'); return; }
   try {
     const csv = exportOdooCsv(rows);
@@ -1388,7 +1784,7 @@ document.getElementById('btn-export-csv2').addEventListener('click', () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = `jurnal-ziswaf-${new Date().toISOString().slice(0,10)}.csv`; a.click();
     URL.revokeObjectURL(url);
-    showToast('Jurnal .csv diekspor', 'success');
+    showToast(`${rows.length} transaksi diekspor ke .csv`, 'success');
   } catch (err) { showToast('Gagal ekspor: ' + err.message, 'error'); }
 });
 
@@ -1505,6 +1901,10 @@ export function initAllStickyScrollbars() {
 
 document.addEventListener('DOMContentLoaded', () => {
   setupDropzone();
-  navigateTo('config');
+  if (getRowCount() > 0) {
+    navigateTo('dashboard');
+  } else {
+    navigateTo('config');
+  }
   initAllStickyScrollbars();
 });

@@ -173,11 +173,14 @@
 .toast {
     pointer-events: all;
     padding: 0.875rem 1.25rem;
-    background: var(--surface);
+    background-color: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
     font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text);
+    opacity: 1;
     animation: slideInRight 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -186,9 +189,44 @@
     to   { opacity: 1; transform: translateX(0); }
 }
 
-.toast.toast-success { border-color: var(--emerald); background: linear-gradient(135deg, rgba(52,211,153,.4), rgba(52,211,153,.25)); }
-.toast.toast-error   { border-color: var(--danger);  background: linear-gradient(135deg, rgba(248,113,113,.4), rgba(248,113,113,.25)); }
-.toast.toast-info    { border-color: var(--accent);  background: linear-gradient(135deg, rgba(56,189,248,.4), rgba(56,189,248,.25)); }
+.toast.toast-success {
+    border-color: #10b981;
+    background: #064e3b;
+    color: #f0fdf4;
+    opacity: 1;
+}
+
+[data-theme="light"] .toast.toast-success {
+    background: #ecfdf5;
+    border-color: #059669;
+    color: #065f46;
+}
+
+.toast.toast-error {
+    border-color: #ef4444;
+    background: #450a0a;
+    color: #fef2f2;
+    opacity: 1;
+}
+
+[data-theme="light"] .toast.toast-error {
+    background: #fef2f2;
+    border-color: #dc2626;
+    color: #991b1b;
+}
+
+.toast.toast-info {
+    border-color: #0284c7;
+    background: #082f49;
+    color: #f0f9ff;
+    opacity: 1;
+}
+
+[data-theme="light"] .toast.toast-info {
+    background: #f0f9ff;
+    border-color: #0284c7;
+    color: #0369a1;
+}
 
 .toast-undo {
     display: flex;
@@ -198,10 +236,10 @@
 
 .btn-undo-inline {
     padding: 0.25rem 0.625rem;
-    background: rgba(56,189,248,0.3);
-    border: 1px solid rgba(56,189,248,0.6);
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.35);
     border-radius: 4px;
-    color: var(--accent);
+    color: #ffffff;
     font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
@@ -209,7 +247,19 @@
     transition: background 0.2s;
 }
 
-.btn-undo-inline:hover { background: rgba(56,189,248,0.45); }
+[data-theme="light"] .btn-undo-inline {
+    background: rgba(2, 132, 199, 0.12);
+    border: 1px solid rgba(2, 132, 199, 0.3);
+    color: #0369a1;
+}
+
+.btn-undo-inline:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+[data-theme="light"] .btn-undo-inline:hover {
+    background: rgba(2, 132, 199, 0.2);
+}
 
 .toast.fadeout {
     animation: fadeOutRight 0.3s ease forwards;
