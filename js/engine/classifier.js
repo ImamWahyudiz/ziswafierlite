@@ -228,6 +228,8 @@ export async function classifyBatch(rows, master, onProgress) {
   
   const results = new Array(rows.length);
   const needsAiIndices = [];
+  const layerCounts = { EXPENSE: 0, CAMPAIGN_TAIL: 0, DONATUR_TETAP: 0, KEYWORD: 0, AI_SEMANTIC: 0, UNAUTHORIZED_FALLBACK: 0 };
+  let resolvedCount = 0;
   
   // Phase 1: Deterministic Layers (0 - 4)
   for (let i = 0; i < rows.length; i++) {
@@ -267,7 +269,9 @@ export async function classifyBatch(rows, master, onProgress) {
       item.reasoning = 'Terdeteksi sebagai transaksi pengeluaran/beban (nominal negatif atau biaya operasional)';
       item.isExpense = true;
       results[i] = item;
-      if (onProgress) onProgress(i + 1, rows.length, item);
+      resolvedCount++;
+      layerCounts.EXPENSE++;
+      if (onProgress) onProgress(resolvedCount, rows.length, item, layerCounts);
       continue;
     }
 
@@ -288,7 +292,9 @@ export async function classifyBatch(rows, master, onProgress) {
     }
     if (tailMatched) {
       results[i] = item;
-      if (onProgress) onProgress(i + 1, rows.length, item);
+      resolvedCount++;
+      layerCounts.CAMPAIGN_TAIL++;
+      if (onProgress) onProgress(resolvedCount, rows.length, item, layerCounts);
       continue;
     }
 
@@ -335,7 +341,9 @@ export async function classifyBatch(rows, master, onProgress) {
         item.reasoning = `Pengirim terdaftar sebagai Donatur Tetap: ${matchedDonor.name}`;
         donorMatched = true;
         results[i] = item;
-        if (onProgress) onProgress(i + 1, rows.length, item);
+        resolvedCount++;
+        layerCounts.DONATUR_TETAP++;
+        if (onProgress) onProgress(resolvedCount, rows.length, item, layerCounts);
         continue;
       }
     }
@@ -369,7 +377,9 @@ export async function classifyBatch(rows, master, onProgress) {
         item.confidence = 0.90;
         item.reasoning = 'Transfer dari akun resmi yayasan tanpa keterangan program (dialokasikan ke Umum)';
         results[i] = item;
-        if (onProgress) onProgress(i + 1, rows.length, item);
+        resolvedCount++;
+        layerCounts.DONATUR_TETAP++; // ORG_ALIAS counted in standard layers
+        if (onProgress) onProgress(resolvedCount, rows.length, item, layerCounts);
         continue;
       }
     }
@@ -394,7 +404,9 @@ export async function classifyBatch(rows, master, onProgress) {
     }
     if (keywordMatched) {
       results[i] = item;
-      if (onProgress) onProgress(i + 1, rows.length, item);
+      resolvedCount++;
+      layerCounts.KEYWORD++;
+      if (onProgress) onProgress(resolvedCount, rows.length, item, layerCounts);
       continue;
     }
 
@@ -429,6 +441,7 @@ export async function classifyBatch(rows, master, onProgress) {
               it.matchedLayer = 'AI_SEMANTIC';
               it.confidence = round4(aiRes.confidence);
               it.reasoning = aiRes.reason || `Rekomendasi AI semantik (${aiMode})`;
+              layerCounts.AI_SEMANTIC++;
             } else {
               it.assignedCoa = defaultUnauthorizedCoa;
               it.assignedCoaName = coaList.find(c => c.code === defaultUnauthorizedCoa)?.name || '';
@@ -436,9 +449,11 @@ export async function classifyBatch(rows, master, onProgress) {
               it.matchedLayer = 'UNAUTHORIZED_FALLBACK';
               it.confidence = aiRes ? round4(aiRes.confidence) : 0.0;
               it.reasoning = aiRes?.reason || 'Tidak ditemukan kata kunci atau kepastian AI (Karantina Mutasi Buta / Unauthorized)';
+              layerCounts.UNAUTHORIZED_FALLBACK++;
             }
 
-            if (onProgress) onProgress(origIdx + 1, rows.length, it);
+            resolvedCount++;
+            if (onProgress) onProgress(resolvedCount, rows.length, it, layerCounts);
           }
         } catch (chunkErr) {
           for (const origIdx of chunkIndices) {
@@ -449,7 +464,9 @@ export async function classifyBatch(rows, master, onProgress) {
             it.matchedLayer = 'UNAUTHORIZED_FALLBACK';
             it.confidence = 0.0;
             it.reasoning = 'Gagal menghubungi AI: ' + chunkErr.message;
-            if (onProgress) onProgress(origIdx + 1, rows.length, it);
+            layerCounts.UNAUTHORIZED_FALLBACK++;
+            resolvedCount++;
+            if (onProgress) onProgress(resolvedCount, rows.length, it, layerCounts);
           }
         }
       }
@@ -463,7 +480,9 @@ export async function classifyBatch(rows, master, onProgress) {
         it.matchedLayer = 'UNAUTHORIZED_FALLBACK';
         it.confidence = 0.0;
         it.reasoning = 'Modul AI nonaktif dan tidak ditemukan kata kunci (Karantina Mutasi Buta / Unauthorized)';
-        if (onProgress) onProgress(origIdx + 1, rows.length, it);
+        layerCounts.UNAUTHORIZED_FALLBACK++;
+        resolvedCount++;
+        if (onProgress) onProgress(resolvedCount, rows.length, it, layerCounts);
       }
     }
   }

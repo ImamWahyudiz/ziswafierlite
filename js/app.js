@@ -1719,14 +1719,45 @@ async function execute5LayerRescan(targetIds = null) {
     btnBulk.innerHTML = '<i class="fa-solid fa-arrows-rotate fa-spin"></i> <span class="btn-text">Memindai...</span>';
   }
 
+  // Show Live Rescan Progress Modal
+  const modalProgress = document.getElementById('modal-rescan-progress');
+  const rescanFill = document.getElementById('rescan-progress-fill');
+  const rescanLabel = document.getElementById('rescan-progress-label');
+  const rescanPct = document.getElementById('rescan-progress-pct');
+
+  if (modalProgress) {
+    modalProgress.classList.remove('hidden');
+    if (rescanFill) rescanFill.style.width = '0%';
+    if (rescanPct) rescanPct.textContent = '0%';
+    if (rescanLabel) rescanLabel.textContent = `Memproses 0 / ${targetRows.length}`;
+    ['EXPENSE', 'CAMPAIGN_TAIL', 'DONATUR_TETAP', 'KEYWORD', 'AI_SEMANTIC', 'UNAUTHORIZED_FALLBACK'].forEach(k => {
+      const el = document.getElementById(`rescan-lc-${k}`);
+      if (el) el.textContent = '0';
+    });
+  }
+
   try {
     // Snapshot for Undo before rescanning
     const snapshotIds = targetRows.map(r => r.id);
     const snapshotPatches = targetRows.map(r => ({ ...r }));
     _undoSnapshot = { isDelete: false, ids: snapshotIds, patches: snapshotPatches };
 
-    // Run 5-Layer Classifier on the target rows
-    const newlyClassified = await classifyBatch(targetRows, master);
+    // Run 5-Layer Classifier on the target rows with live progress updates!
+    const newlyClassified = await classifyBatch(targetRows, master, (current, total, item, counts) => {
+      const p = Math.round((current / total) * 100);
+      if (rescanFill) rescanFill.style.width = p + '%';
+      if (rescanPct) rescanPct.textContent = p + '%';
+      if (rescanLabel) rescanLabel.textContent = `Memproses ${current} / ${total}`;
+      if (counts) {
+        Object.keys(counts).forEach(k => {
+          const el = document.getElementById(`rescan-lc-${k}`);
+          if (el) el.textContent = counts[k];
+        });
+      }
+    });
+
+    // Brief delay to let amil see 100% completion
+    await new Promise(resolve => setTimeout(resolve, 350));
 
     // Build patch map for bulkPatchRows
     const patchMap = new Map();
@@ -1763,6 +1794,9 @@ async function execute5LayerRescan(targetIds = null) {
   } catch (err) {
     showToast('Gagal memindai ulang: ' + err.message, 'error');
   } finally {
+    if (modalProgress) {
+      modalProgress.classList.add('hidden');
+    }
     if (btnToolbar) {
       btnToolbar.disabled = false;
       btnToolbar.innerHTML = origToolbarHtml;

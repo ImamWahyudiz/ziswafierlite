@@ -850,6 +850,31 @@
                 </button>
             </div>
         </div>
+<!-- Modal: Rescan 5-Layer Live Progress -->
+<div class="modal-overlay hidden" id="modal-rescan-progress" style="backdrop-filter: blur(8px);">
+    <div class="modal-card glass" style="max-width:540px;">
+        <div class="modal-head">
+            <h2><i class="fa-solid fa-arrows-rotate fa-spin text-accent"></i> Memindai Ulang 5-Layer...</h2>
+        </div>
+        <div class="modal-body" style="padding-top: 0.5rem;">
+            <div class="progress-section" style="margin: 0; padding: 0;">
+                <div class="progress-header mb-1">
+                    <span class="progress-label" id="rescan-progress-label">Memproses 0 / 0</span>
+                    <span class="progress-pct font-bold text-accent" id="rescan-progress-pct">0%</span>
+                </div>
+                <div class="progress-bar mb-3">
+                    <div class="progress-fill" id="rescan-progress-fill" style="width: 0%;"></div>
+                </div>
+                <div class="layer-counters" id="rescan-layer-counters">
+                    <span class="layer-counter" data-layer="EXPENSE"><span class="lc-dot dot-expense"></span>Beban <b id="rescan-lc-EXPENSE">0</b></span>
+                    <span class="layer-counter" data-layer="CAMPAIGN_TAIL"><span class="lc-dot dot-tail"></span>Kode Ekor <b id="rescan-lc-CAMPAIGN_TAIL">0</b></span>
+                    <span class="layer-counter" data-layer="DONATUR_TETAP"><span class="lc-dot dot-donor"></span>Donatur <b id="rescan-lc-DONATUR_TETAP">0</b></span>
+                    <span class="layer-counter" data-layer="KEYWORD"><span class="lc-dot dot-keyword"></span>Keyword <b id="rescan-lc-KEYWORD">0</b></span>
+                    <span class="layer-counter" data-layer="AI_SEMANTIC"><span class="lc-dot dot-ai"></span>AI <b id="rescan-lc-AI_SEMANTIC">0</b></span>
+                    <span class="layer-counter" data-layer="UNAUTHORIZED_FALLBACK"><span class="lc-dot dot-unauth"></span>Unauthorized <b id="rescan-lc-UNAUTHORIZED_FALLBACK">0</b></span>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
