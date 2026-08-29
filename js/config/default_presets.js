@@ -29,15 +29,15 @@ export const DEFAULT_MASTER_DATA = {
       name: "Zakat Fitrah",
       coaCode: 40100102,
       tailCode: "007",
-      keywords: ["fitrah", "zkt fitrah", "zakat fitrah", "beras fitrah", "fidyah fitrah"],
-      description: "Penerimaan zakat fitrah beras atau uang kewajiban Ramadhan yang dityalurkan kepada asnaf fakir miskin."
+      keywords: ["fitrah", "zkt fitrah", "zakat fitrah", "beras fitrah", "fidyah fitrah", "zkt fitr", "zakat fitri"],
+      description: "Penerimaan zakat fitrah beras atau uang kewajiban Ramadhan yang disalurkan kepada asnaf fakir miskin."
     },
     {
       id: "prog-zkt-maal",
       name: "Zakat Maal Penghasilan",
       coaCode: 40100101,
       tailCode: "101",
-      keywords: ["maal", "zakat maal", "zakat penghasilan", "iph", "zakat profesi", "penghasilan", "gaji", "profesi", "tabungan", "zakat emas"],
+      keywords: ["maal", "zakat maal", "zakat mal", "zkt maal", "zakat penghasilan", "iph", "zakat profesi", "penghasilan", "gaji", "profesi", "tabungan", "zakat emas", "zkt mal"],
       description: "Zakat harta dan penghasilan 2.5% dari gaji bulanan, tabungan, perniagaan, atau emas perorangan."
     },
     {
@@ -45,7 +45,7 @@ export const DEFAULT_MASTER_DATA = {
       name: "Sedekah Subuh Berkah",
       coaCode: 40201001,
       tailCode: "201",
-      keywords: ["sedekah subuh", "subuh", "infak harian", "celengan"],
+      keywords: ["sedekah", "sodaqoh", "shodaqoh", "shadaqah", "sdq", "sdkh", "sedekah subuh", "subuh", "infak harian", "celengan", "infaq subuh", "sodaqoh subuh"],
       description: "Sedekah harian rutin tanpa pembatasan program melalui kotak amal dan transfer reguler jamaah."
     },
     {

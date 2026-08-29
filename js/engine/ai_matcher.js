@@ -54,38 +54,36 @@ function formatCompactPrograms(programs) {
 }
 
 /**
- * Builds the authentic syariah compact batch prompt with Program and Organization Alias context
+ * Builds the compact batch prompt with Program and Organization Alias context
  */
 function buildCompactPrompt(items, programs, options = {}) {
   const compactProgTable = formatCompactPrograms(programs);
   const txLines = items.map((it, idx) => `${idx + 1}: "${it.cleanedLabel || it.rawLabel}"`);
   const txBlock = txLines.join('\n');
 
-  const orgName = options.orgName || 'Yayasan / Lembaga Amil Zakat';
   const aliases = (options.companyAliases || []).filter(Boolean);
   const baselineCoa = options.defaultBaselineCoa || 40201001;
   const unauthCoa = options.defaultUnauthorizedCoa || 40201000;
 
   const aliasSection = aliases.length > 0 
-    ? `\nNAMA & ALIAS RESMI LEMBAGA/YAYASAN:\n- Nama Lembaga: "${orgName}"\n- Kata Kunci / Alias Rekening: ${aliases.join(', ')}\n`
+    ? `\nALIAS/NAMA LEMBAGA: ${aliases.join(', ')}\n`
     : '';
 
-  return `Kamu adalah asisten akuntansi syariah ZISWAF. Analisis teks mutasi donatur dan tentukan program/COA yang paling cocok.
+  return `Kamu asisten akuntansi syariah ZISWAF. Analisis konteks & maksud mutasi donatur, lalu tentukan program/COA yang cocok.
 ${aliasSection}
-DAFTAR MASTER PROGRAM (ID|COA|NAMA_PROGRAM|HINTS):
+MASTER PROGRAM (ID|COA|NAMA_PROGRAM|HINTS):
 ${compactProgTable}
 
-TRANSAKSI UNTUK DIANALISIS:
+TRANSAKSI:
 ${txBlock}
 
-INSTRUKSI & ATURAN KLASIFIKASI:
-1. Pahami maksud/sinonim konteks donasi (contoh: air/sumur/pipanisasi -> Sarana Air; lauk/nutrisi/konsumsi santri -> Gizi Santri; kewajiban harta 2.5%/nishab/gaji -> Zakat Maal; SPP/pendidikan -> Beasiswa; bencana alam/musibah -> Tanggap Bencana; obat/darurat medis -> Layanan Kesehatan; semen/bata/gedung/masjid -> Wakaf Fisik; domba/hewan ternak -> Qurban; tebusan puasa -> Fidyah).
-2. PENTING - NAMA/ALIAS YAYASAN/LEMBAGA: Jika keterangan transaksi menyebut nama yayasan atau kata kunci alias resmi di atas (misalnya "infaq yayasan", "transfer lazis", "titipan amil zakat", "donasi yayasan", "sedekah operasional", "infaq kas lembaga") tanpa menyebutkan program khusus lain, AI HARUS mengalokasikannya ke akun INFAK & SEDEKAH UMUM (id_program: null, no_akun: ${baselineCoa}, confidence: 0.90, reason: "Donasi umum atas nama yayasan/lembaga").
-3. Jika tidak ada kecocokan sama sekali atau keterangan mutasi buta/acak/hanya nama pengirim tanpa kata donasi, beri id_program: null, no_akun: ${unauthCoa}, confidence: 0.0.
-4. Alasan/reason dibuat sangat singkat (maksimal 10 kata).
-5. Output HANYA JSON array murni tanpa markdown, format:
+INSTRUKSI:
+1. Pahami konteks donasi, sinonim, dan variasi ejaan syariah (sedekah/sodaqoh, zakat/zkt, infak/infaq, wakaf/waqaf).
+2. Jika menyebut nama/alias lembaga tanpa program khusus, alokasikan ke Infak Umum (id_program: null, no_akun: ${baselineCoa}, confidence: 0.90, reason: "Donasi umum lembaga").
+3. Jika tidak cocok/buta/hanya nama pengirim tanpa kata donasi, beri id_program: null, no_akun: ${unauthCoa}, confidence: 0.0.
+4. Output HANYA JSON array murni tanpa markdown, format:
 [
-  {"idx": 1, "id_program": "<id_program_atau_null>", "no_akun": <number>, "confidence": <float_0_sampai_1>, "reason": "<string ringkas>"}
+  {"idx": 1, "id_program": "<id_atau_null>", "no_akun": <number>, "confidence": <float_0_1>, "reason": "<maks_10_kata>"}
 ]`;
 }
 
