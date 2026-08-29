@@ -301,6 +301,57 @@ await ok("sessionStore category and period filtering scopes getFilteredSorted co
   sessionStore.clearRows();
 });
 
+await ok("sessionStore bulkPatchRows and 5-layer rescan workflow", async () => {
+  store.resetToDefaults();
+  // Initially, an unknown transaction is categorized as UNAUTHORIZED_FALLBACK
+  const unauthRow = {
+    id: "tx-unauth-test",
+    rawDate: "2026-08-10",
+    transactionDate: "2026-08-10",
+    rawLabel: "TRF CR DARI BUDI KEBUMEN BANTUAN BERAS CIANJUR",
+    rawAmount: 500000,
+    partner: "BANK",
+    assignedCoa: 40201000,
+    assignedCoaName: "Penerimaan Infak & Sedekah - Unauthorized",
+    assignedProgramId: null,
+    matchedLayer: "UNAUTHORIZED_FALLBACK"
+  };
+  sessionStore.setRows([unauthRow]);
+
+  // Now, amil adds a new program with keyword 'beras cianjur'
+  store.addProgram({
+    id: "prog-beras-cianjur",
+    name: "Bantuan Pangan Beras Cianjur",
+    coaCode: 40202302,
+    keywords: ["beras cianjur", "pangan cianjur"],
+    tailCode: ""
+  });
+
+  // Rescan via classifyBatch
+  const currentMaster = store.getMaster();
+  const rescanned = await classifyBatch(sessionStore.getRows(), currentMaster);
+  assert.strictEqual(rescanned.length, 1);
+  assert.strictEqual(rescanned[0].assignedCoa, 40202302);
+  assert.strictEqual(rescanned[0].matchedLayer, "KEYWORD");
+  assert.strictEqual(rescanned[0].assignedProgramId, "prog-beras-cianjur");
+
+  // Apply patch via bulkPatchRows
+  const patchMap = new Map();
+  patchMap.set(rescanned[0].id, {
+    assignedCoa: rescanned[0].assignedCoa,
+    assignedCoaName: rescanned[0].assignedCoaName,
+    assignedProgramId: rescanned[0].assignedProgramId,
+    matchedLayer: rescanned[0].matchedLayer
+  });
+  sessionStore.bulkPatchRows(patchMap);
+
+  const updated = sessionStore.getRows().find(r => r.id === "tx-unauth-test");
+  assert.strictEqual(updated.assignedCoa, 40202302);
+  assert.strictEqual(updated.matchedLayer, "KEYWORD");
+  sessionStore.clearRows();
+  store.resetToDefaults();
+});
+
 console.log("== E2E PARITY: sample/inputt.xlsx vs sample/output.xlsx ==");
 let parityPct = -1;
 try {

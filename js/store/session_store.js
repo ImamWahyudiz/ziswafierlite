@@ -93,6 +93,16 @@ export function bulkUpdateRows(ids, patch) {
   notify();
 }
 
+export function bulkPatchRows(patchMap) {
+  const isMap = patchMap instanceof Map;
+  rows = rows.map(r => {
+    const patch = isMap ? patchMap.get(r.id) : patchMap[r.id];
+    return patch ? { ...r, ...patch } : r;
+  });
+  persistRows();
+  notify();
+}
+
 export function deleteRows(ids) {
   const set = new Set(ids);
   rows = rows.filter(r => !set.has(r.id));

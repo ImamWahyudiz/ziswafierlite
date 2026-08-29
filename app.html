@@ -585,6 +585,9 @@
         <div class="master-selection-status hidden" id="selection-banner">
             <span class="fw-semibold text-xs text-accent"><span id="selected-count-badge">0 transaksi dicentang</span></span>
             <div class="selection-actions-wrap">
+                <button class="btn btn-warning btn-xs hidden" id="btn-bulk-rescan" title="Pindai ulang transaksi terpilih menggunakan aturan 5-layer terbaru">
+                    <i class="fa-solid fa-arrows-rotate"></i> <span class="btn-text">Rescan 5-Layer</span>
+                </button>
                 <button class="btn btn-primary btn-xs hidden" id="btn-bulk-general" title="Tetapkan transaksi terpilih ke COA Infak Umum">
                     <i class="fa-solid fa-check"></i> <span class="btn-text">Infak Umum</span>
                 </button>
@@ -599,6 +602,9 @@
             <div class="table-header-toolbar">
                 <div class="reporting-pagination-info text-muted text-xs" id="reporting-top-pagination-info"></div>
                 <div class="mobile-table-hint text-xs text-accent"><i class="fa-solid fa-arrows-left-right"></i> Geser tabel</div>
+                <button class="btn btn-warning btn-xs hidden" id="btn-rescan-unauthorized" title="Pindai ulang semua transaksi Unauthorized menggunakan aturan 5-layer terbaru">
+                    <i class="fa-solid fa-arrows-rotate"></i> <span class="btn-text">Rescan 5-Layer</span>
+                </button>
                 <div class="table-mode-controls ms-auto">
                     <button class="btn btn-outline btn-xs" id="btn-toggle-table-mode" title="Klik untuk beralih mode Ringkas / Detail">
                         <i class="fa-solid fa-list"></i> <span id="toggle-mode-text" class="btn-text">Ringkas</span>

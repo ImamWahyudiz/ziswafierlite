@@ -57,6 +57,18 @@
     box-shadow: 0 4px 16px rgba(52, 211, 153, 0.3);
 }
 
+.btn-warning {
+    background: #f59e0b;
+    color: #0b0f17;
+    font-weight: 600;
+}
+.btn-warning:hover:not(:disabled) {
+    transform: translateY(-1px);
+    background: #d97706;
+    color: #ffffff;
+    box-shadow: 0 4px 16px rgba(245, 158, 11, 0.35);
+}
+
 .btn-outline {
     background: transparent;
     border: 1px solid var(--border);

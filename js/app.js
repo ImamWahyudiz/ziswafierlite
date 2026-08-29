@@ -11,7 +11,7 @@ import { classifyBatch } from "./engine/classifier.js";
 import { testAIConnection } from "./engine/ai_matcher.js";
 import { parseBankStatement, exportOdooExcel, exportOdooCsv } from "./services/excel_adapter.js";
 import {
-  getRows, getRowCount, setRows, mergeRows, updateRow, bulkUpdateRows, deleteRows, restoreRows, clearRows,
+  getRows, getRowCount, setRows, mergeRows, updateRow, bulkUpdateRows, bulkPatchRows, deleteRows, restoreRows, clearRows,
   getFilteredSorted, getPagedRows, getStats, getFilter, setFilter, getSortState, setSort, getRowsByPeriod,
   getPage, setPage, getProgramTotals, getCategoryTotals, MAX_SESSION_ROWS
 } from "./store/session_store.js";
@@ -1228,6 +1228,13 @@ function renderDashboard() {
   document.getElementById('stat-classified').textContent = classified.toLocaleString('id-ID');
   document.getElementById('stat-unauthorized').textContent = unauthorized.toLocaleString('id-ID');
 
+  const filter = getFilter();
+  const isUnauthorized = filter.filterCategory === 'UNAUTHORIZED';
+  const btnRescanToolbar = document.getElementById('btn-rescan-unauthorized');
+  if (btnRescanToolbar) {
+    btnRescanToolbar.classList.toggle('hidden', !isUnauthorized);
+  }
+
   renderCharts(periodRows);
   renderTable();
   updateFooterBar(periodRows);
@@ -1625,6 +1632,7 @@ function updateSelectionBanner() {
   const banner = document.getElementById('selection-banner');
   const badge = document.getElementById('selected-count-badge');
   const btnBulkGeneral = document.getElementById('btn-bulk-general');
+  const btnBulkRescan = document.getElementById('btn-bulk-rescan');
   const activeFiltered = getFilteredSorted();
   const activeFilteredIdSet = new Set(activeFiltered.map(r => r.id));
   const validCount = _isGlobalSelected
@@ -1635,11 +1643,14 @@ function updateSelectionBanner() {
     banner.classList.remove('hidden');
     badge.textContent = `${validCount.toLocaleString('id-ID')} transaksi dicentang`;
 
-    // Tombol "Tetapkan ke Infak Umum" hanya muncul jika memfilter status UNAUTHORIZED
+    // Tombol "Infak Umum" & "Rescan 5-Layer" hanya muncul jika memfilter status UNAUTHORIZED
     const filter = getFilter();
     const isUnauthorized = filter.filterCategory === 'UNAUTHORIZED';
     if (btnBulkGeneral) {
       btnBulkGeneral.classList.toggle('hidden', !isUnauthorized);
+    }
+    if (btnBulkRescan) {
+      btnBulkRescan.classList.toggle('hidden', !isUnauthorized);
     }
   } else {
     banner.classList.add('hidden');
@@ -1666,17 +1677,118 @@ function showUndoToast(msg) {
       if (_undoSnapshot.isDelete) {
         restoreRows(_undoSnapshot.deletedRows);
       } else {
-        bulkUpdateRows(_undoSnapshot.ids, _undoSnapshot.patches.reduce((acc, p) => { acc[p.id] = p; return acc; }, {}));
+        const patchMap = new Map(_undoSnapshot.patches.map(p => [p.id, p]));
+        bulkPatchRows(patchMap);
       }
     }
     if (_undoTimer) clearTimeout(_undoTimer);
     t.remove();
     renderDashboard();
-    showToast('Aksi massal dibatalkan', 'info');
+    showToast('Aksi dibatalkan', 'info');
     _undoSnapshot = null;
   });
   _undoTimer = setTimeout(() => { t.classList.add('fadeout'); setTimeout(() => t.remove(), 300); _undoSnapshot = null; }, 8000);
 }
+
+async function execute5LayerRescan(targetIds = null) {
+  const master = getMaster();
+  const sys = getSystemCodes(master);
+  const activeFiltered = getFilteredSorted();
+
+  let targetRows = [];
+  if (targetIds && targetIds.length > 0) {
+    targetRows = getRows().filter(r => targetIds.includes(r.id));
+  } else {
+    // Scan all currently filtered rows in Unauthorized
+    targetRows = activeFiltered.filter(r => r.assignedCoa === sys.unauth || r.matchedLayer === 'UNAUTHORIZED_FALLBACK');
+  }
+
+  if (!targetRows.length) {
+    showToast('Tidak ada transaksi Unauthorized untuk dipindai ulang.', 'info');
+    return;
+  }
+
+  const btnToolbar = document.getElementById('btn-rescan-unauthorized');
+  const btnBulk = document.getElementById('btn-bulk-rescan');
+  const origToolbarHtml = btnToolbar ? btnToolbar.innerHTML : '';
+  const origBulkHtml = btnBulk ? btnBulk.innerHTML : '';
+
+  if (btnToolbar) {
+    btnToolbar.disabled = true;
+    btnToolbar.innerHTML = '<i class="fa-solid fa-arrows-rotate fa-spin"></i> <span class="btn-text">Memindai...</span>';
+  }
+  if (btnBulk) {
+    btnBulk.disabled = true;
+    btnBulk.innerHTML = '<i class="fa-solid fa-arrows-rotate fa-spin"></i> <span class="btn-text">Memindai...</span>';
+  }
+
+  try {
+    // Snapshot for Undo before rescanning
+    const snapshotIds = targetRows.map(r => r.id);
+    const snapshotPatches = targetRows.map(r => ({ ...r }));
+    _undoSnapshot = { isDelete: false, ids: snapshotIds, patches: snapshotPatches };
+
+    // Run 5-Layer Classifier on the target rows
+    const newlyClassified = await classifyBatch(targetRows, master);
+
+    // Build patch map for bulkPatchRows
+    const patchMap = new Map();
+    let promotedCount = 0;
+
+    newlyClassified.forEach(item => {
+      const isStillUnauth = item.assignedCoa === sys.unauth || item.matchedLayer === 'UNAUTHORIZED_FALLBACK';
+      if (!isStillUnauth) {
+        promotedCount++;
+      }
+      patchMap.set(item.id, {
+        assignedCoa: item.assignedCoa,
+        assignedCoaName: item.assignedCoaName,
+        assignedProgramId: item.assignedProgramId,
+        matchedLayer: item.matchedLayer,
+        confidence: item.confidence,
+        reasoning: item.reasoning,
+        isExpense: item.isExpense,
+        isOverridden: false
+      });
+    });
+
+    bulkPatchRows(patchMap);
+
+    _selectedIds.clear();
+    _isGlobalSelected = false;
+    renderDashboard();
+
+    if (promotedCount > 0) {
+      showUndoToast(`✅ Rescan 5-Layer selesai: <b>${promotedCount}</b> dari <b>${targetRows.length}</b> transaksi berhasil terklasifikasi!`);
+    } else {
+      showToast(`Pindai ulang selesai: ${targetRows.length} transaksi belum cocok dengan kata kunci atau program saat ini.`, 'info');
+    }
+  } catch (err) {
+    showToast('Gagal memindai ulang: ' + err.message, 'error');
+  } finally {
+    if (btnToolbar) {
+      btnToolbar.disabled = false;
+      btnToolbar.innerHTML = origToolbarHtml;
+    }
+    if (btnBulk) {
+      btnBulk.disabled = false;
+      btnBulk.innerHTML = origBulkHtml;
+    }
+  }
+}
+
+document.getElementById('btn-rescan-unauthorized')?.addEventListener('click', () => {
+  execute5LayerRescan();
+});
+
+document.getElementById('btn-bulk-rescan')?.addEventListener('click', () => {
+  const activeFiltered = getFilteredSorted();
+  const activeFilteredIdSet = new Set(activeFiltered.map(r => r.id));
+  const ids = _isGlobalSelected
+    ? activeFiltered.map(r => r.id)
+    : [..._selectedIds].filter(id => activeFilteredIdSet.has(id));
+  execute5LayerRescan(ids);
+});
 
 document.getElementById('btn-bulk-general').addEventListener('click', () => {
   const master = getMaster();
