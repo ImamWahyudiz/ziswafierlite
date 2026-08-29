@@ -1,6 +1,6 @@
 import {
   getMaster, updateMaster, resetToDefaults, subscribe as subscribeMaster,
-  exportConfigToJson, importConfigFromJson, importMasterFromExcel, getSystemCodes,
+  exportConfigToJson, importConfigFromJson, importMasterFromExcel, getSystemCodes, updateSystemAccounts,
   addCoa, updateCoa, deleteCoa, batchDeleteCoa,
   addProgram, updateProgram, deleteProgram, batchDeletePrograms,
   addDonor, updateDonor, deleteDonor, batchDeleteDonors,
@@ -254,12 +254,19 @@ function renderCoaTable(m) {
   const sysSet = new Set([sys.unauth, sys.umum, sys.expense]);
   document.getElementById('tbody-coa').innerHTML = m.coaList.map((c, i) => {
     const isSysMapped = sysSet.has(c.code);
-    const sysLabel = c.code === sys.unauth ? 'Unauthorized' : c.code === sys.umum ? 'Infak Umum' : c.code === sys.expense ? 'Beban' : '';
+    let sysBadge = '';
+    if (c.code === sys.unauth) {
+      sysBadge = ` <span class="badge badge-unauthorized-fallback text-xs ms-1" title="Akun Karantina (Unauthorized)">Karantina</span>`;
+    } else if (c.code === sys.umum) {
+      sysBadge = ` <span class="badge badge-donatur-tetap text-xs ms-1" title="Akun Baseline (Infak Umum)">Baseline</span>`;
+    } else if (c.code === sys.expense) {
+      sysBadge = ` <span class="badge badge-expense text-xs ms-1" title="Akun Uang Keluar (Beban Operasional)">Uang Keluar</span>`;
+    }
     const isChecked = _selectedCoa.has(i);
     return `<tr>
       <td><input type="checkbox" class="coa-row-checkbox" data-idx="${i}" ${isChecked ? 'checked' : ''}></td>
       <td><code>${esc(c.code)}</code></td>
-      <td>${esc(c.name)}${isSysMapped ? ` <span class="badge-sys" title="Dipetakan sebagai default ${sysLabel}">${sysLabel}</span>` : ''}</td>
+      <td>${esc(c.name)}${sysBadge}</td>
       <td><span class="badge-cat">${esc(c.category || 'UMUM')}</span></td>
       <td>
         <button class="btn-icon-sm" data-action="edit-coa" data-idx="${i}" title="Edit"><i class="fa-solid fa-pen"></i></button>
@@ -762,25 +769,46 @@ document.getElementById('btn-test-ai')?.addEventListener('click', async () => {
 // ─── System COA Settings ──────────────────────────────────────────────────────
 function renderSystemCoaSettings(m) {
   const sys = getSystemCodes(m);
-  ['unauth','umum','expense'].forEach(key => {
-    const elId = `sys-coa-${key}`;
-    const el = document.getElementById(elId);
-    if (!el) return;
-    el.innerHTML = m.coaList.map(c => `<option value="${c.code}">${c.code} - ${esc(c.name)}</option>`).join('');
-    el.value = sys[key];
-  });
+  const uCode = document.getElementById('sys-coa-unauth-code');
+  const uName = document.getElementById('sys-coa-unauth-name');
+  const bCode = document.getElementById('sys-coa-umum-code');
+  const bName = document.getElementById('sys-coa-umum-name');
+  const eCode = document.getElementById('sys-coa-expense-code');
+  const eName = document.getElementById('sys-coa-expense-name');
+
+  if (uCode) uCode.value = sys.unauth;
+  if (uName) uName.value = sys.unauthName;
+  if (bCode) bCode.value = sys.umum;
+  if (bName) bName.value = sys.umumName;
+  if (eCode) eCode.value = sys.expense;
+  if (eName) eName.value = sys.expenseName;
 }
 
-['sys-coa-unauth','sys-coa-umum','sys-coa-expense'].forEach(id => {
-  document.getElementById(id)?.addEventListener('change', () => {
-    const unauth  = parseInt(document.getElementById('sys-coa-unauth').value, 10);
-    const umum    = parseInt(document.getElementById('sys-coa-umum').value, 10);
-    const expense = parseInt(document.getElementById('sys-coa-expense').value, 10);
-    updateMaster({ settings: { ...getMaster().settings, defaultUnauthorizedCoa: unauth, defaultBaselineCoa: umum, expenseCoa: expense } });
+function handleSaveSystemCoa() {
+  const unauthCode = document.getElementById('sys-coa-unauth-code')?.value;
+  const unauthName = document.getElementById('sys-coa-unauth-name')?.value;
+  const umumCode = document.getElementById('sys-coa-umum-code')?.value;
+  const umumName = document.getElementById('sys-coa-umum-name')?.value;
+  const expenseCode = document.getElementById('sys-coa-expense-code')?.value;
+  const expenseName = document.getElementById('sys-coa-expense-name')?.value;
+
+  try {
+    updateSystemAccounts({
+      unauthCode,
+      unauthName,
+      umumCode,
+      umumName,
+      expenseCode,
+      expenseName
+    });
     renderConfigPage();
-    showToast('Akun Default Sistem diperbarui', 'success');
-  });
-});
+    showToast('Akun default sistem berhasil disimpan & disinkronkan ke tabel COA', 'success');
+  } catch (err) {
+    showToast('Gagal menyimpan akun sistem: ' + err.message, 'error');
+  }
+}
+
+document.getElementById('btn-save-sys-coa')?.addEventListener('click', handleSaveSystemCoa);
 
 // ─── Backup / Restore & Unified Importer ──────────────────────────────────────
 document.getElementById('btn-export-json').addEventListener('click', () => {
@@ -828,11 +856,12 @@ document.getElementById('btn-export-json').addEventListener('click', () => {
 
 let _pendingMasterImport = null;
 
-function initiateMasterImport(type, payload, fileName) {
-  _pendingMasterImport = { type, payload, fileName };
+function initiateMasterImport(type, payload, fileName, targetEntity = null) {
+  _pendingMasterImport = { type, payload, fileName, targetEntity };
   const promptEl = document.getElementById('master-import-prompt-text');
   if (promptEl) {
-    promptEl.innerHTML = `Berkas <b>${esc(fileName)}</b> siap diimpor ke master data.<br>Pilih metode impor:`;
+    const targetLabel = targetEntity === 'coa' ? 'Master COA' : targetEntity === 'program' ? 'Master Program' : targetEntity === 'donor' ? 'Master Donatur' : 'Master Data';
+    promptEl.innerHTML = `Berkas <b>${esc(fileName)}</b> siap diimpor ke <b>${targetLabel}</b>.<br>Pilih metode impor:`;
   }
   openModal('modal-master-import-mode');
 }
@@ -847,7 +876,7 @@ document.getElementById('btn-master-import-replace')?.addEventListener('click', 
 
 function executePendingMasterImport(mode) {
   if (!_pendingMasterImport) return;
-  const { type, payload, fileName } = _pendingMasterImport;
+  const { type, payload, fileName, targetEntity } = _pendingMasterImport;
   closeModal('modal-master-import-mode');
   _pendingMasterImport = null;
 
@@ -857,7 +886,7 @@ function executePendingMasterImport(mode) {
       renderConfigPage();
       showToast(`Config JSON berhasil ${mode === 'replace' ? 'ditimpa' : 'digabungkan'}`, 'success');
     } else if (type === 'excel') {
-      const res = importMasterFromExcel(payload, mode);
+      const res = importMasterFromExcel(payload, mode, targetEntity);
       renderConfigPage();
       showToast(res.message || 'Master data berhasil diimpor', 'success');
     }
@@ -866,13 +895,13 @@ function executePendingMasterImport(mode) {
   }
 }
 
-function handleMasterFileSelect(file) {
+function handleMasterFileSelect(file, targetEntity = null) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
     try {
       const wb = globalThis.XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-      initiateMasterImport('excel', wb, file.name);
+      initiateMasterImport('excel', wb, file.name, targetEntity);
     } catch (err) {
       showToast('Gagal membaca berkas Excel/CSV: ' + err.message, 'error');
     }
@@ -882,7 +911,7 @@ function handleMasterFileSelect(file) {
 
 ['coa', 'program', 'donor'].forEach(entity => {
   document.getElementById(`input-import-${entity}`)?.addEventListener('change', e => {
-    if (e.target.files[0]) handleMasterFileSelect(e.target.files[0]);
+    if (e.target.files[0]) handleMasterFileSelect(e.target.files[0], entity);
     e.target.value = '';
   });
 });

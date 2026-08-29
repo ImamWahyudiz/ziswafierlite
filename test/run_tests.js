@@ -196,6 +196,55 @@ await ok("updateMaster patch visible + notify", () => {
   assert.ok(notified);
   assert.strictEqual(store.getMaster().companyAliases[0], "test-alias");
 });
+
+await ok("updateSystemAccounts configures custom codes & names and syncs to coaList", () => {
+  store.resetToDefaults();
+  store.updateSystemAccounts({
+    unauthCode: 41000000,
+    unauthName: "Dana Karantina Belum Jelas",
+    umumCode: 42000000,
+    umumName: "Dana Infak Kotak Keliling",
+    expenseCode: 51000000,
+    expenseName: "Biaya Operasional Kantor"
+  });
+
+  const sys = store.getSystemCodes();
+  assert.strictEqual(sys.unauth, 41000000);
+  assert.strictEqual(sys.unauthName, "Dana Karantina Belum Jelas");
+  assert.strictEqual(sys.umum, 42000000);
+  assert.strictEqual(sys.umumName, "Dana Infak Kotak Keliling");
+  assert.strictEqual(sys.expense, 51000000);
+  assert.strictEqual(sys.expenseName, "Biaya Operasional Kantor");
+
+  const m = store.getMaster();
+  assert.ok(m.coaList.some(c => c.code === 41000000 && c.name === "Dana Karantina Belum Jelas"));
+  assert.ok(m.coaList.some(c => c.code === 42000000 && c.name === "Dana Infak Kotak Keliling"));
+  assert.ok(m.coaList.some(c => c.code === 51000000 && c.name === "Biaya Operasional Kantor"));
+});
+
+await ok("importMasterFromExcel correctly maps NO AKUN and NAMA AKUN without number duplication", () => {
+  store.resetToDefaults();
+  const coaRows = [
+    { "NO AKUN": 40100102, "NAMA AKUN": "Zakat Fitrah Ramadan", "KATEGORI": "ZAKAT" },
+    { "NO AKUN": 40201002, "NAMA AKUN": "Infak Kemanusiaan Palestina", "KATEGORI": "INFAK / SEDEKAH" }
+  ];
+  const ws = XLSX.utils.json_to_sheet(coaRows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "COA");
+
+  const res = store.importMasterFromExcel(wb, "replace", "coa");
+  assert.strictEqual(res.coaCount, 2);
+
+  const m = store.getMaster();
+  const zakat = m.coaList.find(c => c.code === 40100102);
+  assert.ok(zakat, "COA 40100102 should exist");
+  assert.strictEqual(zakat.code, 40100102);
+  assert.strictEqual(zakat.name, "Zakat Fitrah Ramadan", "Account name should be 'Zakat Fitrah Ramadan', NOT the account number");
+  
+  // Ensure it was NOT imported into Donatur
+  assert.strictEqual(res.donorCount, 0);
+  assert.ok(!m.donors.some(d => d.name === "Zakat Fitrah Ramadan"));
+});
 store.resetToDefaults();
 
 console.log("== UNIT: SESSION STORE ==");

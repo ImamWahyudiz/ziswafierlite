@@ -122,28 +122,64 @@
                 <div class="sys-coa-grid">
                     <div class="sys-coa-item">
                         <div class="sys-coa-header">
-                            <span class="sys-coa-title">COA Unauthorized</span>
-                            <span class="badge badge-unauthorized-fallback text-xs">Karantina</span>
+                            <span class="sys-coa-title">1. Akun Karantina</span>
+                            <span class="badge badge-unauthorized-fallback text-xs">Unauthorized</span>
                         </div>
-                        <select class="form-select" id="sys-coa-unauth"></select>
-                        <div class="sys-coa-hint">Transaksi masuk yang gagal dikenali semua layer</div>
+                        <div class="sys-coa-inputs mt-2">
+                            <div class="form-group mb-1">
+                                <label class="text-xs text-muted" for="sys-coa-unauth-code">Nomor / Kode COA:</label>
+                                <input type="number" class="form-control form-control-sm font-mono" id="sys-coa-unauth-code" placeholder="40201000">
+                            </div>
+                            <div class="form-group mb-0">
+                                <label class="text-xs text-muted" for="sys-coa-unauth-name">Nama Akun:</label>
+                                <input type="text" class="form-control form-control-sm" id="sys-coa-unauth-name" placeholder="Penerimaan Infak &amp; Sedekah - Unauthorized">
+                            </div>
+                        </div>
+                        <div class="sys-coa-hint mt-2">Menampung mutasi masuk yang gagal dikenali oleh semua layer.</div>
                     </div>
+
                     <div class="sys-coa-item">
                         <div class="sys-coa-header">
-                            <span class="sys-coa-title">COA Infak Umum</span>
-                            <span class="badge badge-donatur-tetap text-xs">Baseline</span>
+                            <span class="sys-coa-title">2. Akun Baseline</span>
+                            <span class="badge badge-donatur-tetap text-xs">Infak Umum</span>
                         </div>
-                        <select class="form-select" id="sys-coa-umum"></select>
-                        <div class="sys-coa-hint">Donatur tetap yang transfer tanpa info program</div>
+                        <div class="sys-coa-inputs mt-2">
+                            <div class="form-group mb-1">
+                                <label class="text-xs text-muted" for="sys-coa-umum-code">Nomor / Kode COA:</label>
+                                <input type="number" class="form-control form-control-sm font-mono" id="sys-coa-umum-code" placeholder="40201001">
+                            </div>
+                            <div class="form-group mb-0">
+                                <label class="text-xs text-muted" for="sys-coa-umum-name">Nama Akun:</label>
+                                <input type="text" class="form-control form-control-sm" id="sys-coa-umum-name" placeholder="Penerimaan Infak &amp; Sedekah - Umum">
+                            </div>
+                        </div>
+                        <div class="sys-coa-hint mt-2">Akun tujuan default donatur tetap atau transfer tanpa keterangan program.</div>
                     </div>
+
                     <div class="sys-coa-item">
                         <div class="sys-coa-header">
-                            <span class="sys-coa-title">COA Beban</span>
-                            <span class="badge badge-expense text-xs">Uang Keluar</span>
+                            <span class="sys-coa-title">3. Akun Uang Keluar</span>
+                            <span class="badge badge-expense text-xs">Beban Operasional</span>
                         </div>
-                        <select class="form-select" id="sys-coa-expense"></select>
-                        <div class="sys-coa-hint">Mutasi minus atau transaksi pengeluaran / beban</div>
+                        <div class="sys-coa-inputs mt-2">
+                            <div class="form-group mb-1">
+                                <label class="text-xs text-muted" for="sys-coa-expense-code">Nomor / Kode COA:</label>
+                                <input type="number" class="form-control form-control-sm font-mono" id="sys-coa-expense-code" placeholder="60100008">
+                            </div>
+                            <div class="form-group mb-0">
+                                <label class="text-xs text-muted" for="sys-coa-expense-name">Nama Akun:</label>
+                                <input type="text" class="form-control form-control-sm" id="sys-coa-expense-name" placeholder="Beban Lain-Lain (Pengeluaran Bank)">
+                            </div>
+                        </div>
+                        <div class="sys-coa-hint mt-2">Menampung mutasi debet/keluar atau biaya operasional transfer bank.</div>
                     </div>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3 pt-2" style="border-top: 1px solid var(--border);">
+                    <span class="text-xs text-muted"><i class="fa-solid fa-circle-check text-emerald"></i> Tiga akun ini otomatis disinkronkan ke daftar tabel COA di bawah.</span>
+                    <button class="btn btn-primary btn-sm" id="btn-save-sys-coa" title="Simpan Akun Sistem">
+                        <i class="fa-solid fa-floppy-disk"></i> <span class="btn-text">Simpan Akun Sistem</span>
+                    </button>
                 </div>
             </div>
 

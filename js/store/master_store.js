@@ -90,19 +90,116 @@ export const SPECIAL_PROGRAMS = [
 export function getSystemCodes(m) {
   const current = m || state;
   const settings = current?.settings || {};
+  const unauthCode = settings.defaultUnauthorizedCoa || 40201000;
+  const umumCode = settings.defaultBaselineCoa || 40201001;
+  const expenseCode = settings.expenseCoa || 60100008;
+
+  const coaList = current?.coaList || [];
+  const unauthEntry = coaList.find(c => c.code === unauthCode);
+  const umumEntry = coaList.find(c => c.code === umumCode);
+  const expenseEntry = coaList.find(c => c.code === expenseCode);
+
   return {
-    unauth: settings.defaultUnauthorizedCoa || 40201000,
-    umum: settings.defaultBaselineCoa || 40201001,
-    expense: settings.expenseCoa || 60100008
+    unauth: unauthCode,
+    unauthName: settings.defaultUnauthorizedName || unauthEntry?.name || "Penerimaan Infak & Sedekah - Unauthorized",
+    umum: umumCode,
+    umumName: settings.defaultBaselineName || umumEntry?.name || "Penerimaan Infak & Sedekah - Umum",
+    expense: expenseCode,
+    expenseName: settings.expenseName || expenseEntry?.name || "Beban Lain-Lain (Pengeluaran Bank)"
   };
 }
 
-function findColumn(headers, aliases) {
-  for (const header of headers) {
-    const hClean = String(header).toLowerCase().replace(/[\s_-]+/g, " ").trim();
-    for (const alias of aliases) {
-      const aClean = alias.toLowerCase().replace(/[\s_-]+/g, " ").trim();
-      if (hClean === aClean || hClean.includes(aClean)) {
+export function updateSystemAccounts({ unauthCode, unauthName, umumCode, umumName, expenseCode, expenseName }) {
+  const uCode = sanitizeCoaCode(unauthCode);
+  const bCode = sanitizeCoaCode(umumCode);
+  const eCode = sanitizeCoaCode(expenseCode);
+
+  if (!uCode || !bCode || !eCode) {
+    throw new Error("Nomor akun untuk Karantina, Baseline, dan Beban harus berupa angka valid.");
+  }
+  if (uCode === bCode || uCode === eCode || bCode === eCode) {
+    throw new Error("Nomor akun Karantina, Baseline, dan Beban tidak boleh sama satu sama lain.");
+  }
+
+  const uName = sanitizeInputText(unauthName, 120) || "Penerimaan Infak & Sedekah - Unauthorized";
+  const bName = sanitizeInputText(umumName, 120) || "Penerimaan Infak & Sedekah - Umum";
+  const eName = sanitizeInputText(expenseName, 120) || "Beban Lain-Lain (Pengeluaran Bank)";
+
+  const prevSys = getSystemCodes(state);
+
+  state.settings = {
+    ...state.settings,
+    defaultUnauthorizedCoa: uCode,
+    defaultUnauthorizedName: uName,
+    defaultBaselineCoa: bCode,
+    defaultBaselineName: bName,
+    expenseCoa: eCode,
+    expenseName: eName
+  };
+
+  // Sync to state.coaList
+  const coaMap = new Map(state.coaList.map(c => [c.code, { ...c }]));
+
+  // If codes changed from previous defaults, clean up old defaults if not in use
+  [prevSys.unauth, prevSys.umum, prevSys.expense].forEach(oldCode => {
+    if (oldCode && oldCode !== uCode && oldCode !== bCode && oldCode !== eCode) {
+      if ([40201000, 40201001, 60100008].includes(oldCode)) {
+        coaMap.delete(oldCode);
+      }
+    }
+  });
+
+  coaMap.set(uCode, {
+    code: uCode,
+    name: uName,
+    category: coaMap.get(uCode)?.category || "UMUM"
+  });
+
+  coaMap.set(bCode, {
+    code: bCode,
+    name: bName,
+    category: coaMap.get(bCode)?.category || "UMUM"
+  });
+
+  coaMap.set(eCode, {
+    code: eCode,
+    name: eName,
+    category: coaMap.get(eCode)?.category || "BEBAN"
+  });
+
+  state.coaList = Array.from(coaMap.values()).sort((a, b) => a.code - b.code);
+
+  persist();
+  notify();
+  return getSystemCodes(state);
+}
+
+function findColumn(headers, aliases, excludedCols = []) {
+  if (!headers || !headers.length) return null;
+  const excludedSet = new Set(excludedCols.filter(Boolean).map(c => String(c).toLowerCase().trim()));
+  const available = headers.filter(h => !excludedSet.has(String(h).toLowerCase().trim()));
+
+  // Pass 1: exact match
+  for (const alias of aliases) {
+    const aClean = alias.toLowerCase().replace(/[\s_.-]+/g, " ").trim();
+    for (const header of available) {
+      const hClean = String(header).toLowerCase().replace(/[\s_.-]+/g, " ").trim();
+      if (hClean === aClean) return header;
+    }
+  }
+
+  // Pass 2: prefix or whole-word match
+  for (const alias of aliases) {
+    const aClean = alias.toLowerCase().replace(/[\s_.-]+/g, " ").trim();
+    for (const header of available) {
+      const hClean = String(header).toLowerCase().replace(/[\s_.-]+/g, " ").trim();
+      // If we are looking for a name/text column, do not match headers that signify code/number
+      if (["nama", "nama akun", "nama program", "nama donatur", "uraian", "keterangan", "deskripsi", "akun", "program", "donatur"].includes(aClean)) {
+        if (/^(no|nomor|kode|id|kd)\b|[\s_.-](no|nomor|kode|id|kd)\b/i.test(hClean)) {
+          continue;
+        }
+      }
+      if (hClean.startsWith(aClean) || hClean.endsWith(aClean) || hClean.includes(aClean)) {
         return header;
       }
     }
@@ -112,14 +209,23 @@ function findColumn(headers, aliases) {
 
 function findCOASheet(workbook) {
   if (!workbook.SheetNames || !workbook.Sheets) return null;
+  // 1. Check Sheet Name
+  for (const sheetName of workbook.SheetNames) {
+    if (/coa|chart|akun|rekening|perkiraan/i.test(sheetName.trim())) {
+      return workbook.Sheets[sheetName];
+    }
+  }
+  // 2. Check Sheet Headers
   for (const sheetName of workbook.SheetNames) {
     const ws = workbook.Sheets[sheetName];
     const data = globalThis.XLSX.utils.sheet_to_json(ws, { defval: "" });
     if (data.length > 0) {
       const headers = Object.keys(data[0]);
-      const hasCode = headers.some(h => /no\s*akun|no_akun|kode\s*akun|^coa$/i.test(h));
-      const hasName = headers.some(h => /nama\s*akun|nama_akun|^akun$/i.test(h));
-      if (hasCode && hasName) return ws;
+      const hasCode = headers.some(h => /no\s*akun|kode\s*akun|no\s*rek|kode\s*rek|no\s*perkiraan|kode\s*perkiraan|^coa$|^kode$|^no$/i.test(h));
+      const hasName = headers.some(h => /nama\s*akun|nama\s*rek|nama\s*perkiraan|^nama$|uraian|keterangan/i.test(h));
+      const hasIdProg = headers.some(h => /^id$|id\s*program|kode\s*program/i.test(h));
+      const hasPhone = headers.some(h => /no\s*hp|phone|telepon|handphone/i.test(h));
+      if (hasCode && hasName && !hasIdProg && !hasPhone) return ws;
     }
   }
   return null;
@@ -127,6 +233,13 @@ function findCOASheet(workbook) {
 
 function findProgramSheet(workbook) {
   if (!workbook.SheetNames || !workbook.Sheets) return null;
+  // 1. Check Sheet Name
+  for (const sheetName of workbook.SheetNames) {
+    if (/program|campaign|kegiatan/i.test(sheetName.trim())) {
+      return workbook.Sheets[sheetName];
+    }
+  }
+  // 2. Check Sheet Headers
   for (const sheetName of workbook.SheetNames) {
     const ws = workbook.Sheets[sheetName];
     const data = globalThis.XLSX.utils.sheet_to_json(ws, { defval: "" });
@@ -142,17 +255,23 @@ function findProgramSheet(workbook) {
 
 function findDonorSheet(workbook) {
   if (!workbook.SheetNames || !workbook.Sheets) return null;
+  // 1. Check Sheet Name
+  for (const sheetName of workbook.SheetNames) {
+    if (/donatur|donor|muzakki|munfiq/i.test(sheetName.trim())) {
+      return workbook.Sheets[sheetName];
+    }
+  }
+  // 2. Check Sheet Headers
   for (const sheetName of workbook.SheetNames) {
     const ws = workbook.Sheets[sheetName];
     const data = globalThis.XLSX.utils.sheet_to_json(ws, { defval: "" });
     if (data.length > 0) {
       const headers = Object.keys(data[0]);
-      const hasName = headers.some(h => /^nama$|nama\s*donatur|^donatur$/i.test(h));
+      const hasDonorTitle = headers.some(h => /nama\s*donatur|^donatur$|muzakki/i.test(h));
       const hasPhone = headers.some(h => /no\s*hp|phone|telepon|hp/i.test(h));
-      const hasProg = headers.some(h => /program\s*default|program/i.test(h));
-      const isCoa = headers.some(h => /no\s*akun|kode\s*akun/i.test(h));
-      const isProg = headers.some(h => /^id$|id\s*program/i.test(h));
-      if (hasName && (hasPhone || hasProg) && !isCoa && !isProg) return ws;
+      const isCoa = headers.some(h => /no\s*akun|kode\s*akun|no\s*rek|kode\s*rek|coa/i.test(h));
+      const isProg = headers.some(h => /^id$|id\s*program|kode\s*program/i.test(h));
+      if ((hasDonorTitle || hasPhone) && !isCoa && !isProg) return ws;
     }
   }
   return null;
@@ -188,28 +307,41 @@ export function subscribe(callback) {
  * Supports importing COA, Program, Donatur from single-sheet or multi-sheet workbooks.
  * @param {Object} workbook - SheetJS workbook object
  * @param {'merge'|'replace'} mode - 'merge' (append & update) or 'replace' (wipe old data & load new)
+ * @param {'coa'|'program'|'donor'|null} targetEntity - Explicit target entity if imported from specific tab
  */
-export function importMasterFromExcel(workbook, mode = 'merge') {
+export function importMasterFromExcel(workbook, mode = 'merge', targetEntity = null) {
   if (!workbook || !workbook.SheetNames || !workbook.SheetNames.length) {
     throw new Error('Berkas Excel/CSV tidak memuat lembar kerja yang dapat dibaca.');
   }
 
-  let coaSheet = findCOASheet(workbook);
-  let programSheet = findProgramSheet(workbook);
-  let donorSheet = findDonorSheet(workbook);
+  let coaSheet = null;
+  let programSheet = null;
+  let donorSheet = null;
 
-  // Fallback: If no sheet identified by strict rules and there is only 1 sheet, analyze headers
-  if (!coaSheet && !programSheet && !donorSheet && workbook.SheetNames.length === 1) {
-    const singleWs = workbook.Sheets[workbook.SheetNames[0]];
-    const data = globalThis.XLSX.utils.sheet_to_json(singleWs, { defval: "" });
-    if (data.length > 0) {
-      const headers = Object.keys(data[0]);
-      if (headers.some(h => /no\s*akun|kode\s*akun|^coa$/i.test(h))) {
-        coaSheet = singleWs;
-      } else if (headers.some(h => /^id$|id\s*program|kode\s*program|program/i.test(h))) {
-        programSheet = singleWs;
-      } else if (headers.some(h => /nama|donatur/i.test(h))) {
-        donorSheet = singleWs;
+  if (targetEntity === 'coa') {
+    coaSheet = findCOASheet(workbook) || workbook.Sheets[workbook.SheetNames[0]];
+  } else if (targetEntity === 'program') {
+    programSheet = findProgramSheet(workbook) || workbook.Sheets[workbook.SheetNames[0]];
+  } else if (targetEntity === 'donor') {
+    donorSheet = findDonorSheet(workbook) || workbook.Sheets[workbook.SheetNames[0]];
+  } else {
+    coaSheet = findCOASheet(workbook);
+    programSheet = findProgramSheet(workbook);
+    donorSheet = findDonorSheet(workbook);
+
+    // Fallback: If no sheet identified by strict rules and there is only 1 sheet, analyze headers
+    if (!coaSheet && !programSheet && !donorSheet && workbook.SheetNames.length === 1) {
+      const singleWs = workbook.Sheets[workbook.SheetNames[0]];
+      const data = globalThis.XLSX.utils.sheet_to_json(singleWs, { defval: "" });
+      if (data.length > 0) {
+        const headers = Object.keys(data[0]);
+        if (headers.some(h => /no\s*akun|kode\s*akun|no\s*rek|kode\s*rek|^coa$|^kode$|^no$/i.test(h))) {
+          coaSheet = singleWs;
+        } else if (headers.some(h => /^id$|id\s*program|kode\s*program|program/i.test(h))) {
+          programSheet = singleWs;
+        } else if (headers.some(h => /donatur|phone|no\s*hp/i.test(h))) {
+          donorSheet = singleWs;
+        }
       }
     }
   }
@@ -232,9 +364,9 @@ export function importMasterFromExcel(workbook, mode = 'merge') {
   if (coaSheet) {
     const coaData = globalThis.XLSX.utils.sheet_to_json(coaSheet, { defval: "" });
     const headers = coaData.length > 0 ? Object.keys(coaData[0]) : [];
-    const codeCol = findColumn(headers, ["no akun", "no_akun", "kode akun", "coa"]);
-    const nameCol = findColumn(headers, ["nama akun", "nama_akun", "akun", "nama"]);
-    const categoryCol = findColumn(headers, ["kategori", "category"]);
+    const codeCol = findColumn(headers, ["no akun", "no_akun", "kode akun", "kode_akun", "no rekening", "kode rekening", "no perkiraan", "kode perkiraan", "coa", "kode", "nomor", "no"]);
+    const nameCol = findColumn(headers, ["nama akun", "nama_akun", "nama rekening", "nama perkiraan", "nama coa", "uraian", "keterangan", "deskripsi", "nama"], [codeCol]);
+    const categoryCol = findColumn(headers, ["kategori", "category", "tipe", "type", "jenis"], [codeCol, nameCol]);
 
     const parsedCoa = [];
     coaData.forEach((row, rowIdx) => {
@@ -254,11 +386,28 @@ export function importMasterFromExcel(workbook, mode = 'merge') {
     });
 
     if (parsedCoa.length > 0) {
+      const sys = getSystemCodes(state);
+      const systemCoas = [
+        { code: sys.unauth, name: sys.unauthName, category: "UMUM" },
+        { code: sys.umum, name: sys.umumName, category: "UMUM" },
+        { code: sys.expense, name: sys.expenseName, category: "BEBAN" }
+      ];
+
       if (mode === 'replace') {
         const newCoaList = [...parsedCoa];
-        SPECIAL_ACCOUNTS.forEach(special => {
-          if (!newCoaList.some(c => c.code === special.code)) {
-            newCoaList.push({ ...special });
+        systemCoas.forEach(sysAccount => {
+          const matchIdx = newCoaList.findIndex(c => c.code === sysAccount.code);
+          if (matchIdx >= 0) {
+            // Update name of system account from imported data if matched
+            state.settings = {
+              ...state.settings,
+              ...(sysAccount.code === sys.unauth ? { defaultUnauthorizedName: newCoaList[matchIdx].name } : {}),
+              ...(sysAccount.code === sys.umum ? { defaultBaselineName: newCoaList[matchIdx].name } : {}),
+              ...(sysAccount.code === sys.expense ? { expenseName: newCoaList[matchIdx].name } : {})
+            };
+          } else {
+            // Preserve configured system account
+            newCoaList.push({ ...sysAccount });
           }
         });
         newCoaList.sort((a, b) => a.code - b.code);
@@ -268,9 +417,9 @@ export function importMasterFromExcel(workbook, mode = 'merge') {
         // Merge mode
         const existingMap = new Map(state.coaList.map(c => [c.code, c]));
         parsedCoa.forEach(c => existingMap.set(c.code, c));
-        SPECIAL_ACCOUNTS.forEach(special => {
-          if (!existingMap.has(special.code)) {
-            existingMap.set(special.code, { ...special });
+        systemCoas.forEach(sysAccount => {
+          if (!existingMap.has(sysAccount.code)) {
+            existingMap.set(sysAccount.code, { ...sysAccount });
           }
         });
         state.coaList = Array.from(existingMap.values()).sort((a, b) => a.code - b.code);
@@ -283,12 +432,12 @@ export function importMasterFromExcel(workbook, mode = 'merge') {
   if (programSheet) {
     const programData = globalThis.XLSX.utils.sheet_to_json(programSheet, { defval: "" });
     const progHeaders = programData.length > 0 ? Object.keys(programData[0]) : [];
-    const idCol = findColumn(progHeaders, ["id", "id program", "kode program", "id_program"]);
-    const nameColProg = findColumn(progHeaders, ["nama program", "nama_program", "program", "nama"]);
-    const coaColProg = findColumn(progHeaders, ["no akun", "coa", "kode akun", "no_akun"]);
-    const tailColProg = findColumn(progHeaders, ["kode ekor", "ekor", "kode_ekor", "tail"]);
-    const keywordsColProg = findColumn(progHeaders, ["keywords", "kata kunci", "kata_kunci"]);
-    const descColProg = findColumn(progHeaders, ["deskripsi", "description", "keterangan"]);
+    const idCol = findColumn(progHeaders, ["id", "id program", "kode program", "id_program", "kode"]);
+    const nameColProg = findColumn(progHeaders, ["nama program", "nama_program", "program", "nama"], [idCol]);
+    const coaColProg = findColumn(progHeaders, ["no akun", "coa", "kode akun", "no_akun", "kode_akun"], [idCol, nameColProg]);
+    const tailColProg = findColumn(progHeaders, ["kode ekor", "ekor", "kode_ekor", "tail"], [idCol, nameColProg, coaColProg]);
+    const keywordsColProg = findColumn(progHeaders, ["keywords", "kata kunci", "kata_kunci"], [idCol, nameColProg, coaColProg, tailColProg]);
+    const descColProg = findColumn(progHeaders, ["deskripsi", "description", "keterangan"], [idCol, nameColProg, coaColProg, tailColProg, keywordsColProg]);
 
     const parsedPrograms = [];
     programData.forEach((row, rowIdx) => {
@@ -355,9 +504,9 @@ export function importMasterFromExcel(workbook, mode = 'merge') {
   if (donorSheet) {
     const donorData = globalThis.XLSX.utils.sheet_to_json(donorSheet, { defval: "" });
     const headers = donorData.length > 0 ? Object.keys(donorData[0]) : [];
-    const nameCol = findColumn(headers, ["nama", "nama donatur", "donatur", "nama_donatur"]);
-    const phoneCol = findColumn(headers, ["no hp", "no_hp", "phone", "telepon", "hp"]);
-    const progCol = findColumn(headers, ["program default", "program_default", "program", "id program"]);
+    const nameCol = findColumn(headers, ["nama donatur", "nama_donatur", "donatur", "nama lengkap", "nama"]);
+    const phoneCol = findColumn(headers, ["no hp", "no_hp", "phone", "telepon", "handphone", "hp", "no telepon"], [nameCol]);
+    const progCol = findColumn(headers, ["program default", "program_default", "program", "id program"], [nameCol, phoneCol]);
 
     const parsedDonors = [];
     const defaultCoa = getSystemCodes(state).umum;
