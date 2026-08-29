@@ -11,20 +11,30 @@ export function cleanTransactionText(rawLabel, companyAliases) {
 
   let extractedSenderName = null;
 
+  // Pattern 1: "BIFAST - Trf Dari - {bank?} - {name} - {notes}"
   const regex1 = /^bifast\s*-\s*trf\s*dari\s*-\s*([^-]+?)\s*-\s*(.+)$/i;
   const match1 = workingLabel.match(regex1);
   if (match1) {
     extractedSenderName = nameFromNotes(match1[2]);
   } else {
+    // Pattern 2: starts with "Trf Dari - {rest}"
     const regex2 = /^trf\s*dari\s*-\s*(.+)$/i;
     const match2 = workingLabel.match(regex2);
     if (match2) {
       extractedSenderName = nameFromNotes(match2[1]);
     } else {
-      const regex3 = /^(\d+\.\d{2})\s+([A-Za-z .,]+)$/;
+      // Pattern 3: "{prefix} - Trf Dari - {rest}"  e.g. "100426 - Trf Dari - Amelia"
+      const regex3 = /^.+?\s*-\s*trf\s*dari\s*-\s*(.+)$/i;
       const match3 = workingLabel.match(regex3);
       if (match3) {
-        extractedSenderName = match3[2].trim();
+        extractedSenderName = nameFromNotes(match3[1]);
+      } else {
+        // Pattern 4: "{digits.cents} {Name}"
+        const regex4 = /^(\d+\.\d{2})\s+([A-Za-z .,]+)$/;
+        const match4 = workingLabel.match(regex4);
+        if (match4) {
+          extractedSenderName = match4[2].trim();
+        }
       }
     }
   }
