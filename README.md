@@ -7,7 +7,7 @@
 ![SEO Optimized](https://img.shields.io/badge/SEO-Maximized-f59e0b.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
-> 🚀 **LIVE DEMO**: Kunjungi aplikasi langsung di **[https://ImamWahyudiz.github.io/ziswafierlite/](https://ImamWahyudiz.github.io/ziswafierlite/)**
+> 🚀 **LIVE DEMO**: Kunjungi aplikasi langsung di **[https://ImamWahyudiz.github.io/ziswafierlite/](https://ziswafierlite.vercel.app/app)**
 
 ---
 
