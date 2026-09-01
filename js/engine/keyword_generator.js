@@ -283,11 +283,25 @@ export async function generateKeywordSuggestions(master, settings) {
     throw new Error('Provider AI tidak didukung');
   }
 
-  // Parse JSON response — try full object first, then cleanJsonResponse fallback
+  // Parse JSON response — AI returns full object with {collisions, missing, variants, hierarchy_fixes}
   let parsed = {};
-  try { parsed = JSON.parse(rawResponse.trim()); } catch {
+  try { 
+    parsed = JSON.parse(rawResponse.trim()); 
+  } catch {
     const cleanedJson = cleanJsonResponse(rawResponse);
     try { parsed = JSON.parse(cleanedJson); } catch { parsed = {}; }
+  }
+  // If parsing returned an array (cleaned version), wrap in object
+  if (Array.isArray(parsed)) {
+    // The cleanJsonResponse might extract array first - try to reconstruct
+    parsed = { collisions: [], missing: [], variants: [], hierarchy_fixes: [] };
+    // Try to find the actual response structure in raw text
+    try {
+      const fullParse = JSON.parse(rawResponse.trim());
+      if (typeof fullParse === 'object' && !Array.isArray(fullParse)) {
+        parsed = fullParse;
+      }
+    } catch {}
   }
 
   // Validate structure - ensure arrays exist
