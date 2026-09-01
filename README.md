@@ -57,24 +57,16 @@ Lembaga pengelola Zakat, Infak, Sedekah, dan Wakaf (ZISWAF) memproses ribuan tra
 | **Alur Approval** | Review & Edit Langsung di Tabel Transaksi | Alur 2-Tahap: Verifikasi Staf ➔ Persetujuan Kadiv |
 | **Brankas Bukti (OCR)** | Tidak ada (fokus pada klasifikasi & konversi) | OCR Scanner Bukti Transfer, Struk ATM, Bukti Chat WA |
 | **Ekspor Akuntansi** | File Excel (`.xlsx`) & `.csv` siap upload SIAK | Integrasi API langsung Odoo / Sistem ERP SIAK |
-| **WhatsApp Gateway** | Tautan manual WhatsApp Web (`wa.me`) | Otomasi WhatsApp Gateway Server (Twilio/Baileys) |
+| **WhatsApp Gateway** | Tidak Ada (Hanya di Versi Full Enterprise) | Otomasi WhatsApp Gateway Server (Twilio/Baileys) |
 | **Instalasi** | Buka URL langsung (Zero Install) | Docker Container, VPS, atau Server Cloud |
 
 ---
 
 ## 🗺️ Alur & Struktur Halaman
 
-```
-Root URL (/) ──► index.html (Landing Page)
-                    │
-                    ├── CTA "Coba Demo Sekarang" / "Buka Converter"
-                    ▼
-                 app.html (Aplikasi Converter ZISWAF)
-                    │
-                    ├── Step 1: Konfigurasi (Master COA, Program, Donatur, Alias, AI)
-                    ├── Step 2: Upload (Drag & Drop Berkas Mutasi Bank .xlsx/.csv)
-                    └── Step 3: Dashboard (Review, Filter, Koreksi, Ekspor Jurnal SIAK)
-```
+<p align="center">
+  <img src="./docs/workflow-spa.svg" alt="Alur & Struktur Halaman ZISWAFier Lite" width="100%" />
+</p>
 
 - **[`index.html`](index.html)**: Landing page modern dan responsif yang menjelaskan tantangan, pipeline 5-lapis, komparasi fitur, tata kelola, dan form kontak.
 - **[`app.html`](app.html)**: Aplikasi konversi mutasi bank client-side yang memproses data mutasi secara instan di memori peramban.
@@ -85,54 +77,9 @@ Root URL (/) ──► index.html (Landing Page)
 
 Setiap baris mutasi bank diproses secara sekuensial dan deterministik melalui arsitektur pipa 5 lapis:
 
-```
-[ Baris Mutasi Bank: Tanggal | Keterangan | Pengirim | Nominal ]
-                               │
-                               ▼
- ┌─────────────────────────────────────────────────────────────┐
- │  LAYER 0: SANITIZER & PROFILE FILTER                        │
- │  - Pembersihan noise BI-FAST, RTGS, QRIS, token e-wallet    │
- │  - Eliminasi nama alias yayasan (cegah false-positive zakat)│
- │  - Ekstraksi otomatis nama pengirim dari keterangan bank    │
- └─────────────────────────────┬───────────────────────────────┘
-                               │
-                               ▼
- ┌─────────────────────────────────────────────────────────────┐
- │  LAYER 1: OUTFLOW / EXPENSE FILTER                          │
- │  - Nominal < 0 ATAU Keterangan "TRF KE" / "Biaya"           │
- │  ➔ Auto-Route: COA 60100008 (Beban Lain-Lain)               │
- └─────────────────────────────┬───────────────────────────────┘
-                               │ (jika transaksi masuk / inflow)
-                               ▼
- ┌─────────────────────────────────────────────────────────────┐
- │  LAYER 2: CAMPAIGN TAIL CODE MATCHING                       │
- │  - Pencocokan 3-digit unik nominal donasi (contoh: Rp 50.024)│
- │  ➔ Auto-Route: COA Program Kampanye Terkait (Akurasi 95%)   │
- └─────────────────────────────┬───────────────────────────────┘
-                               │ (jika tidak cocok kode ekor)
-                               ▼
- ┌─────────────────────────────────────────────────────────────┐
- │  LAYER 3: REGISTERED DONOR MATCHING                         │
- │  - Pencocokan nama pengirim ke database donatur tetap amil  │
- │  ➔ Auto-Route: Program Rutin Donatur / 40201001 Umum        │
- │  ➔ Trigger: Tombol Sapaan & Konfirmasi WhatsApp             │
- └─────────────────────────────┬───────────────────────────────┘
-                               │ (jika pengirim belum terdaftar)
-                               ▼
- ┌─────────────────────────────────────────────────────────────┐
- │  LAYER 4: KEYWORD & ALIAS DICTIONARY                        │
- │  - Pencocokan kata kunci: "fidyah", "wakaf", "zakat maal"   │
- │  ➔ Auto-Route: COA Program Terkait (Akurasi 90%)            │
- └─────────────────────────────┬───────────────────────────────┘
-                               │ (jika tidak ditemukan kata kunci)
-                               ▼
- ┌─────────────────────────────────────────────────────────────┐
- │  LAYER 5: AI SEMANTIC MATCHER (OPSIONAL)                    │
- │  - In-context learning via Ollama Lokal, Gemini, atau OpenAI│
- │  - Jika AI Nonaktif / Skor Keyakinan Rendah (< 0.70):        │
- │  ➔ 40201000 (Penerimaan Belum Terotorisasi / Butuh Review)  │
- └─────────────────────────────────────────────────────────────┘
-```
+<p align="center">
+  <img src="./docs/pipeline-5layer.svg" alt="Arsitektur 5-Layer Hybrid Classification Pipeline" width="760" />
+</p>
 
 ---
 
@@ -140,7 +87,7 @@ Setiap baris mutasi bank diproses secara sekuensial dan deterministik melalui ar
 
 1. **Penyortiran Cepat & Visual**:
    - **Mode Ringkas (*Compact View*)**: Menampilkan baris data padat untuk percepatan audit mutasi berukuran besar.
-   - **Mode Detail**: Menampilkan rationale algoritma, status donatur, dan tombol aksi WhatsApp.
+   - **Mode Detail**: Menampilkan rationale algoritma 5-layer, tingkat keyakinan AI, dan detail nama donatur.
 2. **Koreksi Massal (*Bulk Actions*) dengan Undo**:
    - Seleksi multi-transaksi untuk dialokasikan sekaligus ke *Infak Umum* atau *Beban*, dilengkapi fitur *Undo*.
 3. **Master Data Fleksibel & Terisolasi**:

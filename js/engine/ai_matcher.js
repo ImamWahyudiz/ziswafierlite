@@ -10,7 +10,7 @@ let circuitOpen = false;
 let circuitOpenTime = 0;
 const CIRCUIT_THRESHOLD = 3;
 const CIRCUIT_TIMEOUT_MS = 60000; // 60s cooldown
-const REQUEST_TIMEOUT_MS = 15000; // 15s timeout
+const REQUEST_TIMEOUT_MS = 60000; // 60s timeout
 
 export function resetCircuitBreaker() {
   consecutiveFailures = 0;
@@ -84,9 +84,20 @@ function buildCompactPrompt(items, programs, options = {}) {
     ? `\nDONATUR TETAP (NAMA→PROGRAM_DEFAULT):\n${formatCompactDonors(options.donors)}\n`
     : '';
 
-  return `Kamu asisten akuntansi syariah ZISWAF. Analisis konteks & maksud mutasi donatur, lalu tentukan program/COA yang cocok.
+  return `Kamu asisten akuntansi syariah ZISWAF untuk lembaga amil zakat Indonesia. Analisis konteks & maksud mutasi donatur dalam BAHASA INDONESIA, lalu tentukan program/COA yang cocok.
+
+ATURAN BAHASA INDONESIA:
+- "Renovasi" = pembangunan/pemugaran → gunakan program Pembangunan (bukan Umum)
+- "Penghafal Quran" / "Tahfidz Quran" / "Santri Penghafal" = kegiatan menghafal, BUKAN program Quran → Infak Umum
+- "Alquran" / "Al Quran" / "Mushaf Quran" = objek Quran itu sendiri → program Quran
+- "Zakat" tanpa "Fitrah" = Zakat Maal (khusus); "Zakat Fitrah" = Zakat Fitrah
+- "Zakat Untuk Anak Yatim" → Zakat Maal (kata "Zakat" lebih spesifik dari "Yatim")
+- "Wakaf" tanpa keterangan spesifik → Wakaf Umum; "Wakaf Pembangunan" / "Wakaf Renovasi" → Wakaf Pembangunan
+- "Shadaqah" / "Sedekah" tanpa program → Infak Umum
+- "Infaq" / "Infak" + nama program → program itu; "Infaq" tanpa nama → Infak Umum
+
 ${aliasSection}${donorSection}
-MASTER PROGRAM (ID|COA|NAMA_PROGRAM|HINTS):
+MASTER PROGRAM (ID|COA|NAMA_PROGRAM|DESKRIPSI|KEYWORDS):
 ${compactProgTable}
 
 TRANSAKSI:
@@ -104,7 +115,7 @@ INSTRUKSI:
 }
 
 
-async function fetchWithTimeout(url, options, timeout = REQUEST_TIMEOUT_MS) {
+export async function fetchWithTimeout(url, options, timeout = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
   try {
@@ -123,7 +134,7 @@ async function fetchWithTimeout(url, options, timeout = REQUEST_TIMEOUT_MS) {
 /**
  * Strips markdown code blocks and repairs JSON text
  */
-function cleanJsonResponse(rawText) {
+export function cleanJsonResponse(rawText) {
   if (!rawText) return '';
   let text = String(rawText).trim();
   text = text.replace(/^```(?:json)?\s*/gi, '').replace(/\s*```$/gi, '').trim();
@@ -166,7 +177,7 @@ function parseConfidence(val) {
 /**
  * Calls Ollama local endpoint
  */
-async function callOllama(prompt, settings) {
+export async function callOllama(prompt, settings) {
   const endpoint = (settings.ollamaEndpoint || 'http://localhost:11434').replace(/\/api\/(?:chat|generate)$/i, '').replace(/\/+$/, '');
   const model = settings.aiModelName || 'qwen2.5:3b-instruct';
   const url = `${endpoint}/api/generate`;
@@ -191,7 +202,7 @@ async function callOllama(prompt, settings) {
 /**
  * Calls Google Gemini Cloud API
  */
-async function callGemini(prompt, settings) {
+export async function callGemini(prompt, settings) {
   const apiKey = (settings.aiApiKey || '').trim();
   if (!apiKey) throw new Error('API Key Google Gemini belum diisi. Masukkan API Key di tab Pengaturan AI.');
 
@@ -253,7 +264,7 @@ async function callGemini(prompt, settings) {
 /**
  * Calls OpenAI / Groq / OpenRouter API
  */
-async function callOpenAICompatible(prompt, settings) {
+export async function callOpenAICompatible(prompt, settings) {
   const apiKey = (settings.aiApiKey || '').trim();
   if (!apiKey) throw new Error('API Key AI belum diisi.');
 

@@ -129,7 +129,7 @@ export function exportOdooExcel(transactions) {
         t.assignedCoa || '',
         t.assignedCoaName || '',
         Number(t.rawAmount) || 0,
-        (t.reasoning || t.cleanedLabel || '').toString().trim()
+        t.rawLabel || ''
     ]);
     const aoa = [header, ...rows];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -156,7 +156,7 @@ export function exportOdooCsv(transactions) {
             t.assignedCoa || '',
             t.assignedCoaName || '',
             Number(t.rawAmount) || 0,
-            (t.reasoning || t.cleanedLabel || '').toString().trim()
+            t.rawLabel || ''
         ];
         lines.push(row.map(escapeField).join(';'));
     }

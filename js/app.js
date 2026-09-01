@@ -49,13 +49,28 @@ function showToast(msg, type = 'info') {
   setTimeout(() => { t.classList.add('fadeout'); setTimeout(() => t.remove(), 300); }, 3500);
 }
 
-function openModal(id) { document.getElementById(id)?.classList.remove('hidden'); }
-function closeModal(id) { document.getElementById(id)?.classList.add('hidden'); }
+function openModal(id) { 
+  const m = document.getElementById(id);
+  if (m) {
+    m.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  }
+}
+
+function closeModal(id) { 
+  const m = document.getElementById(id);
+  if (m) {
+    m.classList.add('hidden');
+    if (!document.querySelector('.modal-overlay:not(.hidden)')) {
+      document.body.style.overflow = '';
+    }
+  }
+}
 
 document.addEventListener('click', e => {
   const btn = e.target.closest('[data-close]');
   if (btn) closeModal(btn.dataset.close);
-  // Do not close modals on backdrop overlay click to prevent accidental loss of user input
+  // Do not close modals on backdrop overlay click or scroll to prevent accidental loss of user input
 });
 
 // ─── JS Tooltip ───────────────────────────────────────────────────────────────
@@ -434,13 +449,15 @@ document.getElementById('btn-save-coa').addEventListener('click', () => {
 function renderProgramTable(m) {
   document.getElementById('tbody-program').innerHTML = m.programs.map((p, i) => {
     const isChecked = _selectedPrograms.has(i);
+    const hiddenCount = (p.hiddenKeywords || []).length;
+    const hiddenBadge = hiddenCount > 0 ? ' <span class="badge badge-ai text-xs" title="Varian AI (' + hiddenCount + ')">+' + hiddenCount + '</span>' : '';
     return `<tr>
       <td><input type="checkbox" class="program-row-checkbox" data-idx="${i}" ${isChecked ? 'checked' : ''}></td>
       <td><code>${esc(p.id)}</code></td>
       <td>${esc(p.name)}</td>
       <td><code>${esc(p.coaCode)}</code></td>
       <td><code>${esc(p.tailCode || '-')}</code></td>
-      <td class="text-xs text-muted">${esc((p.keywords || []).slice(0, 3).join(', '))}</td>
+      <td class="text-xs text-muted">${esc((p.keywords || []).slice(0, 3).join(', '))}${hiddenBadge}</td>
       <td>
         <button class="btn-icon-sm" data-action="edit-prog" data-idx="${i}" title="Edit"><i class="fa-solid fa-pen"></i></button>
         <button class="btn-icon-sm text-danger" data-action="del-prog" data-idx="${i}" title="Hapus"><i class="fa-solid fa-trash"></i></button>
@@ -490,16 +507,45 @@ document.getElementById('btn-batch-delete-program')?.addEventListener('click', (
   }
 });
 
-function populateProgramCoaSelect() {
+function populateProgramCoaSelect(selectedCoa = '', selectedParentCoa = '') {
   const m = getMaster();
-  const sel = document.getElementById('program-coa');
-  sel.innerHTML = m.coaList.map(c => `<option value="${c.code}">${c.code} - ${esc(c.name)}</option>`).join('');
+  const defaultCoa = selectedCoa || (m.coaList[0] ? m.coaList[0].code : '');
+  setupGenericDropdown({
+    wrapperId: 'wrapper-program-coa',
+    triggerId: 'trigger-program-coa',
+    menuId: 'menu-program-coa',
+    listId: 'list-program-coa',
+    searchId: 'search-program-coa',
+    textId: 'text-program-coa',
+    hiddenInputId: 'program-coa',
+    currentValue: defaultCoa,
+    placeholder: 'Pilih Akun COA...',
+    emptyText: 'Tidak ada akun COA yang cocok',
+    getItems: () => m.coaList.map(c => ({ value: c.code, label: c.name, badge: c.code }))
+  });
+
+  setupGenericDropdown({
+    wrapperId: 'wrapper-program-parent-coa',
+    triggerId: 'trigger-program-parent-coa',
+    menuId: 'menu-program-parent-coa',
+    listId: 'list-program-parent-coa',
+    searchId: 'search-program-parent-coa',
+    textId: 'text-program-parent-coa',
+    hiddenInputId: 'program-parent-coa',
+    currentValue: selectedParentCoa || '',
+    placeholder: '-- Tanpa Induk / Berdiri Sendiri --',
+    emptyText: 'Tidak ada akun COA yang cocok',
+    getItems: () => [
+      { value: '', label: '-- Tanpa Induk / Berdiri Sendiri --' },
+      ...m.coaList.map(c => ({ value: c.code, label: c.name, badge: c.code }))
+    ]
+  });
 }
 
 document.getElementById('btn-add-program').addEventListener('click', () => {
   document.getElementById('program-edit-idx').value = '';
   ['program-id','program-name','program-tail','program-keywords','program-desc'].forEach(id => document.getElementById(id).value = '');
-  populateProgramCoaSelect();
+  populateProgramCoaSelect('', '');
   document.getElementById('modal-program-title').textContent = 'Tambah Program';
   openModal('modal-program');
 });
@@ -517,8 +563,7 @@ document.getElementById('tbody-program').addEventListener('click', e => {
     document.getElementById('program-tail').value = p.tailCode || '';
     document.getElementById('program-keywords').value = (p.keywords || []).join(';');
     document.getElementById('program-desc').value = p.description || '';
-    populateProgramCoaSelect();
-    document.getElementById('program-coa').value = p.coaCode;
+    populateProgramCoaSelect(p.coaCode, p.parentCoaCode || '');
     document.getElementById('modal-program-title').textContent = 'Edit Program';
     openModal('modal-program');
   } else if (btn.dataset.action === 'del-prog') {
@@ -531,6 +576,63 @@ document.getElementById('tbody-program').addEventListener('click', e => {
   }
 });
 
+document.getElementById('btn-analyze-keywords')?.addEventListener('click', async () => {
+  const btn = document.getElementById('btn-analyze-keywords');
+  const master = getMaster();
+  const settings = master.settings;
+  if (!settings.aiApiKey) {
+    showToast('API Key AI belum diisi. Membuka tab Pengaturan AI...', 'error', 4500);
+    const aiSubtab = document.querySelector('.subtab[data-tab="ai"]');
+    if (aiSubtab) aiSubtab.click();
+    return;
+  }
+
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-accent"></i> <span class="btn-text">Menganalisis...</span>';
+  }
+  showToast('Sedang menganalisis keyword & mendeteksi kolisi dengan AI...', 'info', 4000);
+
+  try {
+    const { generateKeywordSuggestions } = await import('./engine/keyword_generator.js');
+    const suggestions = await generateKeywordSuggestions(master, settings);
+    showToast('Analisis selesai! Menampilkan hasil review.', 'success', 3000);
+    showKeywordReviewModal(master, suggestions);
+  } catch (err) {
+    console.error('Error analisis keyword AI:', err);
+    showToast('Gagal menganalisis keyword: ' + err.message, 'error', 6000);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+});
+
+// Terapkan keyword suggestions button
+document.getElementById('btn-apply-keyword-suggestions')?.addEventListener('click', async () => {
+  const master = getMaster();
+  const suggestions = JSON.parse(localStorage.getItem('ziswaf_keyword_suggestions') || '{}');
+  if (!suggestions.variants || suggestions.variants.length === 0) {
+    showToast('Tidak ada saran untuk diterapkan', 'error');
+    return;
+  }
+  for (const v of suggestions.variants || []) {
+    const prog = master.programs.find(p => p.id === v.program_id);
+    if (!prog) continue;
+    if (!prog.hiddenKeywords) prog.hiddenKeywords = [];
+    for (const variant of v.variants || []) {
+      if (!prog.hiddenKeywords.includes(variant) && !prog.keywords.includes(variant)) {
+        prog.hiddenKeywords.push(variant);
+      }
+    }
+  }
+  closeModal('modal-keyword-review');
+  renderConfigPage();
+  showToast('Saran keyword diterapkan', 'success');
+});
+
 document.getElementById('btn-save-program').addEventListener('click', () => {
   const id = sanitizeSlug(document.getElementById('program-id').value, 50);
   const name = sanitizeInputText(document.getElementById('program-name').value, 120);
@@ -538,14 +640,15 @@ document.getElementById('btn-save-program').addEventListener('click', () => {
   const coaCode = sanitizeCoaCode(document.getElementById('program-coa').value) || 0;
   const tailCode = sanitizeInputText(document.getElementById('program-tail').value, 10);
   const keywords = document.getElementById('program-keywords').value.split(/[;,]/).map(k => sanitizeInputText(k, 50)).filter(Boolean);
+  const parentCoaCode = sanitizeCoaCode(document.getElementById('program-parent-coa').value) || null;
   const description = sanitizeInputText(document.getElementById('program-desc').value, 500);
   const idx = document.getElementById('program-edit-idx').value;
 
   try {
     if (idx === '') {
-      addProgram({ id, name, coaCode, tailCode, keywords, description });
+      addProgram({ id, name, coaCode, tailCode, keywords, description, parentCoaCode, hiddenKeywords: [] });
     } else {
-      updateProgram(parseInt(idx, 10), { id, name, coaCode, tailCode, keywords, description });
+      updateProgram(parseInt(idx, 10), { id, name, coaCode, tailCode, keywords, description, parentCoaCode });
     }
     closeModal('modal-program');
     renderConfigPage();
@@ -554,6 +657,91 @@ document.getElementById('btn-save-program').addEventListener('click', () => {
     showToast(err.message, 'error');
   }
 });
+
+// ─── DONATUR ──────────────────────────────────────────────────────────────────
+function showKeywordReviewModal(master, suggestions) {
+  const content = document.getElementById('keyword-review-content');
+  localStorage.setItem('ziswaf_keyword_suggestions', JSON.stringify(suggestions || {}));
+  
+  let html = '';
+  
+  // Collisions
+  if (suggestions.collisions && suggestions.collisions.length > 0) {
+    html += '<div class="review-section">';
+    html += '<div class="review-section-title text-warning"><i class="fa-solid fa-triangle-exclamation"></i> Deteksi Kolisi Keyword (' + suggestions.collisions.length + ')</div>';
+    for (const c of suggestions.collisions) {
+      html += '<div class="review-item collision">' +
+        '<div class="d-flex align-items-center gap-2 mb-1 flex-wrap">' +
+          '<code>' + esc(c.keyword) + '</code>' +
+          '<span class="text-xs text-muted">di program: <b class="text-accent">' + esc((c.programs||[]).join(', ')) + '</b></span>' +
+        '</div>' +
+        '<div class="text-muted text-xs">' + esc(c.suggestion || '') + '</div>' +
+      '</div>';
+    }
+    html += '</div>';
+  }
+  
+  // Missing
+  if (suggestions.missing && suggestions.missing.length > 0) {
+    html += '<div class="review-section">';
+    html += '<div class="review-section-title text-emerald"><i class="fa-solid fa-circle-plus"></i> Saran Keyword Baru (' + suggestions.missing.length + ')</div>';
+    for (const m of suggestions.missing) {
+      const prog = master.programs.find(p => p.id === m.program_id);
+      html += '<div class="review-item missing">' +
+        '<div class="d-flex align-items-center gap-2 mb-1 flex-wrap">' +
+          '<code>' + esc(m.suggested_keyword) + '</code>' +
+          '<span class="text-xs text-muted">untuk program: <b class="text-accent">' + esc(prog ? prog.name : m.program_id) + '</b></span>' +
+        '</div>' +
+        '<div class="text-muted text-xs">' + esc(m.reason || '') + '</div>' +
+      '</div>';
+    }
+    html += '</div>';
+  }
+  
+  // Variants
+  if (suggestions.variants && suggestions.variants.length > 0) {
+    html += '<div class="review-section">';
+    html += '<div class="review-section-title text-cyan"><i class="fa-solid fa-wand-magic-sparkles"></i> Saran Varian Typo & Sinonim (' + suggestions.variants.length + ')</div>';
+    for (const v of suggestions.variants) {
+      const prog = master.programs.find(p => p.id === v.program_id);
+      const variantTags = (v.variants||[]).map(x => '<span class="variant-badge">' + esc(x) + '</span>').join('');
+      html += '<div class="review-item variant">' +
+        '<div class="mb-1">' +
+          '<b class="text-accent">' + esc(prog ? prog.name : v.program_id) + '</b>: <code>' + esc(v.keyword) + '</code>' +
+        '</div>' +
+        '<div class="variant-badge-list">' +
+          '<span class="variant-label">Varian:</span>' +
+          variantTags +
+        '</div>' +
+      '</div>';
+    }
+    html += '</div>';
+  }
+  
+  // Hierarchy fixes
+  if (suggestions.hierarchy_fixes && suggestions.hierarchy_fixes.length > 0) {
+    html += '<div class="review-section">';
+    html += '<div class="review-section-title text-accent2"><i class="fa-solid fa-sitemap"></i> Rekomendasi Hierarki Program (' + suggestions.hierarchy_fixes.length + ')</div>';
+    for (const h of suggestions.hierarchy_fixes) {
+      html += '<div class="review-item hierarchy">' +
+        '<div class="mb-1">Program <b class="text-accent">' + esc(h.program_id) + '</b>: keyword <code>' + esc(h.keyword) + '</code> — <b>' + esc(h.action) + '</b></div>' +
+        '<div class="text-muted text-xs">' + esc(h.reason || '') + '</div>' +
+      '</div>';
+    }
+    html += '</div>';
+  }
+  
+  if (!html) {
+    html = '<div class="text-center py-4 text-muted">' +
+      '<i class="fa-solid fa-circle-check text-emerald" style="font-size: 2.25rem; margin-bottom: 0.75rem; display: block;"></i>' +
+      '<span class="fw-semibold">Semua keyword program sudah optimal!</span>' +
+      '<p class="text-xs mt-1">Tidak ditemukan kolisi antar program maupun keyword yang terlewat.</p>' +
+    '</div>';
+  }
+  
+  content.innerHTML = html;
+  openModal('modal-keyword-review');
+}
 
 // ─── DONATUR ──────────────────────────────────────────────────────────────────
 function renderDonorTable(m) {
@@ -614,11 +802,28 @@ document.getElementById('btn-batch-delete-donor')?.addEventListener('click', () 
   }
 });
 
-function populateDonorProgramSelect(selectedId) {
+function populateDonorProgramSelect(selectedId = '') {
   const m = getMaster();
-  const sel = document.getElementById('donor-program');
-  sel.innerHTML = '<option value="">-- Donasi Umum / Tanpa Program --</option>' +
-    m.programs.map(p => `<option value="${esc(p.id)}" ${p.id === selectedId ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+  setupGenericDropdown({
+    wrapperId: 'wrapper-donor-program',
+    triggerId: 'trigger-donor-program',
+    menuId: 'menu-donor-program',
+    listId: 'list-donor-program',
+    searchId: 'search-donor-program',
+    textId: 'text-donor-program',
+    hiddenInputId: 'donor-program',
+    currentValue: selectedId || '',
+    placeholder: '-- Donasi Umum / Tanpa Program --',
+    emptyText: 'Tidak ada program yang cocok',
+    getItems: () => [
+      { value: '', label: '-- Donasi Umum / Tanpa Program --' },
+      ...m.programs.map(p => ({
+        value: p.id,
+        label: p.name,
+        badge: p.tailCode ? 'Ekor ' + p.tailCode : ''
+      }))
+    ]
+  });
 }
 
 document.getElementById('btn-add-donor').addEventListener('click', () => {
@@ -747,13 +952,34 @@ document.getElementById('alias-list').addEventListener('click', e => {
 // ─── AI Settings ──────────────────────────────────────────────────────────────
 function renderAiSettings(m) {
   const s = m.settings || {};
-  document.getElementById('ai-mode').value = s.aiMode || 'OFF';
+  const currentMode = s.aiMode || 'OFF';
+  document.getElementById('ai-mode').value = currentMode;
   document.getElementById('ai-model-name').value = s.aiModelName || '';
   document.getElementById('ai-api-key').value = s.aiApiKey || '';
   document.getElementById('ollama-endpoint').value = s.ollamaEndpoint || 'http://localhost:11434/api/chat';
   document.getElementById('confidence-threshold').value = s.confidenceThreshold ?? 0.70;
   document.getElementById('org-name').value = s.orgName || '';
-  toggleAiFields(s.aiMode || 'OFF');
+
+  setupGenericDropdown({
+    wrapperId: 'wrapper-ai-mode',
+    triggerId: 'trigger-ai-mode',
+    menuId: 'menu-ai-mode',
+    listId: 'list-ai-mode',
+    textId: 'text-ai-mode',
+    hiddenInputId: 'ai-mode',
+    currentValue: currentMode,
+    getItems: () => [
+      { value: 'OFF', label: 'OFF (Layer 0–4 saja)' },
+      { value: 'GEMINI', label: 'GEMINI (Google AI)', badge: 'Google' },
+      { value: 'OPENAI', label: 'OPENAI (GPT)', badge: 'OpenAI' },
+      { value: 'LOCAL_OLLAMA', label: 'LOCAL OLLAMA', badge: 'Local' }
+    ],
+    onSelect: (mode) => {
+      toggleAiFields(mode);
+    }
+  });
+
+  toggleAiFields(currentMode);
 }
 
 function toggleAiFields(mode) {
@@ -816,22 +1042,208 @@ document.getElementById('btn-test-ai')?.addEventListener('click', async () => {
   }
 });
 
-// ─── System COA Settings ──────────────────────────────────────────────────────
+// ─── System COA Settings (Scrollable Dropdown) ────────────────────────────────
+// ─── Reusable Custom Dropdown Component ───────────────────────────────────────
+function setupGenericDropdown(cfg) {
+  const {
+    wrapperId,
+    triggerId,
+    menuId,
+    listId,
+    searchId,
+    textId,
+    hiddenInputId,
+    getItems,
+    currentValue,
+    placeholder = 'Pilih opsi...',
+    emptyText = 'Tidak ada data yang cocok',
+    onSelect
+  } = cfg;
+
+  const wrapper = document.getElementById(wrapperId);
+  const trigger = document.getElementById(triggerId);
+  const menu = document.getElementById(menuId);
+  const listEl = document.getElementById(listId);
+  const searchInput = searchId ? document.getElementById(searchId) : null;
+  const textEl = document.getElementById(textId);
+  const hiddenInput = hiddenInputId ? document.getElementById(hiddenInputId) : null;
+
+  if (!trigger || !listEl || !menu || !wrapper) return;
+
+  const items = getItems ? getItems() : [];
+  const val = currentValue !== undefined ? currentValue : (hiddenInput ? hiddenInput.value : '');
+
+  if (hiddenInput && currentValue !== undefined) {
+    hiddenInput.value = val;
+  }
+
+  const activeItem = items.find(it => String(it.value) === String(val));
+  if (textEl) {
+    if (activeItem) {
+      textEl.innerHTML = activeItem.badge
+        ? `<span class="coa-dropdown-badge">${esc(activeItem.badge)}</span> ${esc(activeItem.label)}`
+        : esc(activeItem.label);
+    } else {
+      textEl.innerHTML = `<span class="text-muted">${esc(placeholder)}</span>`;
+    }
+  }
+
+  function renderList(query = '') {
+    const q = query.toLowerCase().trim();
+    const currentVal = hiddenInput ? hiddenInput.value : val;
+    const filtered = items.filter(it => {
+      if (!q) return true;
+      const matchLabel = (it.label || '').toLowerCase().includes(q);
+      const matchBadge = (it.badge != null ? String(it.badge) : '').toLowerCase().includes(q);
+      const matchSub = (it.sublabel || '').toLowerCase().includes(q);
+      return matchLabel || matchBadge || matchSub;
+    });
+
+    if (filtered.length === 0) {
+      listEl.innerHTML = `<div class="coa-dropdown-empty">${esc(emptyText)}</div>`;
+      return;
+    }
+
+    listEl.innerHTML = filtered.map(it => {
+      const isSelected = String(it.value) === String(currentVal);
+      return `<div class="coa-dropdown-item ${isSelected ? 'selected' : ''}" data-value="${esc(it.value)}">
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 0%; min-width: 0;">${esc(it.label)}</span>
+        ${it.badge ? `<span class="coa-dropdown-badge">${esc(it.badge)}</span>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  renderList();
+
+  if (!trigger.dataset.bound) {
+    trigger.dataset.bound = 'true';
+
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = !menu.classList.contains('hidden');
+      document.querySelectorAll('.coa-dropdown-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
+      document.querySelectorAll('.coa-dropdown-fixed-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
+      document.querySelectorAll('.coa-dropdown-wrapper.open').forEach(w => w.classList.remove('open'));
+      document.querySelectorAll('.sys-coa-item.has-dropdown-open').forEach(i => i.classList.remove('has-dropdown-open'));
+
+      if (!isOpen) {
+        menu.classList.remove('hidden');
+        wrapper.classList.add('open');
+        const parentItem = wrapper.closest('.sys-coa-item');
+        if (parentItem) parentItem.classList.add('has-dropdown-open');
+
+        // Smart Dropup detection
+        const trigRect = trigger.getBoundingClientRect();
+        const spaceBelow = window.innerHeight - trigRect.bottom;
+        const spaceAbove = trigRect.top;
+        const estimatedHeight = 260;
+
+        if (spaceBelow < estimatedHeight && spaceAbove > spaceBelow) {
+          menu.classList.add('dropup');
+          const maxListH = Math.min(220, Math.max(120, Math.floor(spaceAbove - 70)));
+          listEl.style.maxHeight = maxListH + 'px';
+        } else {
+          menu.classList.remove('dropup');
+          const maxListH = Math.min(220, Math.max(120, Math.floor(spaceBelow - 70)));
+          listEl.style.maxHeight = maxListH + 'px';
+        }
+
+        renderList('');
+        if (searchInput) {
+          searchInput.value = '';
+          setTimeout(() => searchInput.focus(), 50);
+        }
+      } else {
+        menu.classList.remove('dropup');
+        listEl.style.maxHeight = '';
+      }
+    });
+
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        renderList(e.target.value);
+      });
+      searchInput.addEventListener('click', (e) => e.stopPropagation());
+    }
+
+    listEl.addEventListener('click', (e) => {
+      const itemEl = e.target.closest('.coa-dropdown-item');
+      if (!itemEl) return;
+      const selectedValue = itemEl.dataset.value;
+      const selectedItem = items.find(it => String(it.value) === String(selectedValue));
+
+      if (hiddenInput) {
+        hiddenInput.value = selectedValue;
+        hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      if (textEl) {
+        if (selectedItem) {
+          textEl.innerHTML = selectedItem.badge
+            ? `<span class="coa-dropdown-badge">${esc(selectedItem.badge)}</span> ${esc(selectedItem.label)}`
+            : esc(selectedItem.label);
+        } else {
+          textEl.innerHTML = `<span class="text-muted">${esc(placeholder)}</span>`;
+        }
+      }
+
+      menu.classList.add('hidden');
+      wrapper.classList.remove('open');
+      const parentItem = wrapper.closest('.sys-coa-item');
+      if (parentItem) parentItem.classList.remove('has-dropdown-open');
+
+      if (typeof onSelect === 'function') {
+        onSelect(selectedValue, selectedItem);
+      }
+    });
+  }
+}
+
+function initOrUpdateSysCoaDropdown(key, currentCode, defaultName, coaList) {
+  const activeCoa = coaList.find(c => String(c.code) === String(currentCode));
+  const activeName = activeCoa ? activeCoa.name : defaultName;
+  const nameInput = document.getElementById(`sys-coa-${key}-name`);
+  if (nameInput) nameInput.value = activeName || '';
+
+  setupGenericDropdown({
+    wrapperId: `wrapper-sys-coa-${key}`,
+    triggerId: `trigger-sys-coa-${key}`,
+    menuId: `menu-sys-coa-${key}`,
+    listId: `list-sys-coa-${key}`,
+    searchId: `search-sys-coa-${key}`,
+    textId: `text-sys-coa-${key}`,
+    hiddenInputId: `sys-coa-${key}-code`,
+    currentValue: currentCode,
+    placeholder: 'Pilih Akun COA...',
+    emptyText: 'Tidak ada akun COA yang cocok',
+    getItems: () => coaList.map(c => ({ value: c.code, label: c.name, badge: c.code })),
+    onSelect: (code, item) => {
+      if (nameInput && item) nameInput.value = item.label;
+    }
+  });
+}
+
+// Global click & Escape handler for all COA dropdowns
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.coa-dropdown-wrapper')) {
+    document.querySelectorAll('.coa-dropdown-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
+    document.querySelectorAll('.coa-dropdown-wrapper.open').forEach(w => w.classList.remove('open'));
+    document.querySelectorAll('.sys-coa-item.has-dropdown-open').forEach(i => i.classList.remove('has-dropdown-open'));
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.coa-dropdown-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
+    document.querySelectorAll('.coa-dropdown-wrapper.open').forEach(w => w.classList.remove('open'));
+    document.querySelectorAll('.sys-coa-item.has-dropdown-open').forEach(i => i.classList.remove('has-dropdown-open'));
+  }
+});
+
 function renderSystemCoaSettings(m) {
   const sys = getSystemCodes(m);
-  const uCode = document.getElementById('sys-coa-unauth-code');
-  const uName = document.getElementById('sys-coa-unauth-name');
-  const bCode = document.getElementById('sys-coa-umum-code');
-  const bName = document.getElementById('sys-coa-umum-name');
-  const eCode = document.getElementById('sys-coa-expense-code');
-  const eName = document.getElementById('sys-coa-expense-name');
-
-  if (uCode) uCode.value = sys.unauth;
-  if (uName) uName.value = sys.unauthName;
-  if (bCode) bCode.value = sys.umum;
-  if (bName) bName.value = sys.umumName;
-  if (eCode) eCode.value = sys.expense;
-  if (eName) eName.value = sys.expenseName;
+  initOrUpdateSysCoaDropdown('unauth', sys.unauth, sys.unauthName, m.coaList);
+  initOrUpdateSysCoaDropdown('umum', sys.umum, sys.umumName, m.coaList);
+  initOrUpdateSysCoaDropdown('expense', sys.expense, sys.expenseName, m.coaList);
 }
 
 function handleSaveSystemCoa() {
@@ -886,8 +1298,8 @@ document.getElementById('btn-export-json').addEventListener('click', () => {
     } else if (entity === 'program') {
       sheetName = 'Program';
       data = [
-        { 'ID': 'prog-001', 'NAMA PROGRAM': 'Sedekah Subuh', 'COA': 40202101, 'KODE EKOR': '101', 'KEYWORDS': 'sedekah;subuh', 'DESKRIPSI': 'Program rutin sedekah subuh' },
-        { 'ID': 'prog-002', 'NAMA PROGRAM': 'Zakat Fitrah', 'COA': 40100101, 'KODE EKOR': '999', 'KEYWORDS': 'zakat;fitrah', 'DESKRIPSI': 'Zakat fitrah Ramadan' }
+        { 'ID': 'prog-001', 'NAMA PROGRAM': 'Sedekah Subuh', 'COA': 40202101, 'KODE EKOR': '101', 'PARENT COA': '', 'KEYWORDS': 'sedekah;subuh', 'DESKRIPSI': 'Program rutin sedekah subuh' },
+        { 'ID': 'prog-002', 'NAMA PROGRAM': 'Zakat Fitrah', 'COA': 40100101, 'KODE EKOR': '999', 'PARENT COA': '', 'KEYWORDS': 'zakat;fitrah', 'DESKRIPSI': 'Zakat fitrah Ramadan' }
       ];
     } else if (entity === 'donor') {
       sheetName = 'Donatur';
@@ -1030,63 +1442,145 @@ const TUTORIAL_CONTENT = {
   coa: {
     title: 'Cara Kerja — COA (Chart of Accounts)',
     html: `
-      <p class="text-muted mb-2">Daftar akun buku besar syariah yang digunakan untuk mengelompokkan mutasi bank.</p>
+      <div class="tut-intro">
+        <i class="fa-solid fa-circle-info text-accent"></i>
+        <span>Daftar akun buku besar syariah yang digunakan untuk mengelompokkan mutasi bank secara sistematis.</span>
+      </div>
       <ul class="tut-list">
-        <li><b>NO AKUN</b> & <b>NAMA AKUN</b> wajib diisi, unik, dan tidak boleh kosong.</li>
-        <li><b>3 Akun Default Sistem</b> (Beban <code>60100008</code>, Infak Umum <code>40201001</code>, Unauthorized <code>40201000</code>) tidak bisa dihapus karena dipakai mesin klasifikasi — edit nama tetap boleh.</li>
-        <li>Lalu lintas baris transaksi yang masuk ke akun ini ditandai badge <code>[Beban]</code> / <code>[Infak Umum]</code> / <code>[Unauthorized]</code>.</li>
-        <li>Import via xlsx/csv (tombol <i>Template</i> untuk contoh), atau Tambah COA manual.</li>
+        <li>
+          <i class="fa-solid fa-check text-emerald"></i>
+          <div><strong>NO AKUN & NAMA AKUN</strong> wajib diisi, unik, dan tidak boleh kosong.</div>
+        </li>
+        <li>
+          <i class="fa-solid fa-shield-halved text-accent"></i>
+          <div><strong>3 Akun Default Sistem</strong> (<span class="badge badge-expense text-xs">Beban</span> <span class="coa-dropdown-badge">60100008</span>, <span class="badge badge-donatur-tetap text-xs">Infak Umum</span> <span class="coa-dropdown-badge">40201001</span>, <span class="badge badge-unauthorized-fallback text-xs">Unauthorized</span> <span class="coa-dropdown-badge">40201000</span>) tidak bisa dihapus karena digunakan langsung oleh mesin klasifikasi — namun pengubahan nama akun tetap diperbolehkan.</div>
+        </li>
+        <li>
+          <i class="fa-solid fa-tags text-warning"></i>
+          <div>Lalu lintas transaksi yang masuk ke akun ini secara visual ditandai dengan badge status <span class="badge badge-expense text-xs">Beban</span> / <span class="badge badge-donatur-tetap text-xs">Infak Umum</span> / <span class="badge badge-unauthorized-fallback text-xs">Unauthorized</span>.</div>
+        </li>
+        <li>
+          <i class="fa-solid fa-file-excel text-emerald"></i>
+          <div>Impor massal dapat dilakukan via file Excel/CSV (unduh via tombol <strong>Template</strong> untuk contoh format), atau tambahkan akun baru melalui tombol <strong>Tambah COA</strong>.</div>
+        </li>
       </ul>`
   },
   program: {
     title: 'Cara Kerja — Program',
     html: `
-      <p class="text-muted mb-2">Program penyaluran ZISWAF (zakat, infak, wakaf, dsb) yang menjadi tujuan alokasi.</p>
+      <div class="tut-intro">
+        <i class="fa-solid fa-circle-info text-accent"></i>
+        <span>Program penyaluran ZISWAF (zakat, infak, wakaf, kemanusiaan) yang menjadi tujuan alokasi mutasi.</span>
+      </div>
       <ul class="tut-list">
-        <li><b>ID</b> (unik) & <b>NAMA PROGRAM</b> wajib. Satu program mengikat ke satu COA tujuan.</li>
-        <li>Program jadi target klasifikasi Layer 2 (kode ekor) & Layer 4 (kata kunci).</li>
-        <li>Jangan hapus program yang masih dipakai transaksi — ganti alokasinya lewat koreksi baris di Dashboard.</li>
+        <li>
+          <i class="fa-solid fa-check text-emerald"></i>
+          <div><strong>ID Program & NAMA PROGRAM</strong> wajib diisi unik. Setiap program mengikat ke satu akun <strong>COA tujuan</strong>.</div>
+        </li>
+        <li>
+          <i class="fa-solid fa-crosshairs text-accent"></i>
+          <div>Program menjadi target klasifikasi otomatis pada <strong>Layer 2</strong> (pencocokan 3-digit kode ekor nominal) dan <strong>Layer 4</strong> (kata kunci / keyword).</div>
+        </li>
+        <li>
+          <i class="fa-solid fa-sitemap text-cyan"></i>
+          <div><strong>Kategori Induk</strong> dapat diatur untuk membuat hierarki pelaporan program (mis. turunan program zakat / infak).</div>
+        </li>
+        <li>
+          <i class="fa-solid fa-triangle-exclamation text-warning"></i>
+          <div>Hindari menghapus program yang sudah digunakan dalam transaksi berjalan — alokasinya dapat disesuaikan lewat koreksi baris di Dashboard.</div>
+        </li>
       </ul>`
   },
   donor: {
     title: 'Cara Kerja — Donatur',
     html: `
-      <p class="text-muted mb-2">Donatur tetap yang dikenali dari nama pengirim (Layer 3).</p>
+      <div class="tut-intro">
+        <i class="fa-solid fa-circle-info text-accent"></i>
+        <span>Donatur tetap yang dikenali otomatis dari nama pengirim pada mutasi bank (Layer 3).</span>
+      </div>
       <ul class="tut-list">
-        <li>Isi <b>NAMA</b> pengirim persis seperti di mutasi bank agar terdeteksi.</li>
-        <li>Setiap donatur bisa diikat ke <b>Program Rutin</b> & <b>Default COA</b> (biasanya Infak Umum <code>40201001</code>).</li>
-        <li>Jika nama dikenali tapi tanpa keterangan program → otomatis ke Default COA donatur, lalu bisa dikirim konfirmasi WA.</li>
+        <li>
+          <i class="fa-solid fa-id-card text-accent"></i>
+          <div>Isi <strong>NAMA</strong> pengirim persis seperti yang biasa tertera di mutasi bank agar dapat dideteksi secara presisi.</div>
+        </li>
+        <li>
+          <i class="fa-solid fa-bullseye text-emerald"></i>
+          <div>Setiap donatur dapat diikat ke <strong>Program Rutin</strong> dan <strong>Default COA</strong> (umumnya Infak Umum <span class="coa-dropdown-badge">40201001</span>).</div>
+        </li>
+        <li>
+          <i class="fa-solid fa-arrows-split-up-and-left text-cyan"></i>
+          <div>Jika nama pengirim cocok namun tanpa keterangan program khusus, mutasi otomatis dialokasikan ke Program Rutin donatur tersebut.</div>
+        </li>
       </ul>`
   },
   alias: {
     title: 'Cara Kerja — Alias Yayasan',
     html: `
-      <p class="text-muted mb-2">Nama lembaga/yayasan yang difilter dari label mutasi agar tidak memicu false-positive.</p>
+      <div class="tut-intro">
+        <i class="fa-solid fa-circle-info text-accent"></i>
+        <span>Nama lembaga atau yayasan yang disaring dari teks mutasi agar tidak memicu deteksi keliru (false-positive).</span>
+      </div>
       <ul class="tut-list">
-        <li>Masukkan nama yayasan (mis. <code>Yayasan Amil Zakat Kebumen</code>) — sistem menghapusnya dari teks sebelum klasifikasi.</li>
-        <li>Jika mutasi <b>hanya</b> berisi nama lembaga (tidak ada teks lain), dialokasikan ke <b>Infak Umum <code>40201001</code></b> (layer Yayasan), bukan Unauthorized.</li>
-        <li>Jika masih ada teks lain setelah penyaringan → lanjut ke jalur klasifikasi normal.</li>
+        <li>
+          <i class="fa-solid fa-filter text-accent"></i>
+          <div>Masukkan variasi nama lembaga Anda (mis. <span class="coa-dropdown-badge">YAYASAN AMIL ZAKAT</span>) — sistem akan membersihkannya dari label mutasi sebelum klasifikasi program.</div>
+        </li>
+        <li>
+          <i class="fa-solid fa-building text-cyan"></i>
+          <div>Jika mutasi <strong>hanya berisi nama lembaga</strong> tanpa keterangan apapun, otomatis dialokasikan ke <strong>Infak Umum</strong> <span class="coa-dropdown-badge">40201001</span> (Layer Yayasan), bukan Unauthorized.</div>
+        </li>
+        <li>
+          <i class="fa-solid fa-arrow-right-long text-emerald"></i>
+          <div>Jika masih terdapat teks keterangan lain setelah penyaringan nama lembaga, transaksi akan diproses ke layer klasifikasi berikutnya secara normal.</div>
+        </li>
       </ul>`
   },
   ai: {
     title: 'Cara Kerja — Pengaturan AI (Layer 5)',
     html: `
-      <p class="text-muted mb-2">Layer terakhir: pencocokan semantik untuk mutasi yang belum terdeteksi Layer 0–4.</p>
+      <div class="tut-intro">
+        <i class="fa-solid fa-wand-magic-sparkles text-accent"></i>
+        <span>Layer 5: pencocokan semantik cerdas menggunakan model bahasa AI untuk mutasi yang belum terdeteksi Layer 0–4.</span>
+      </div>
       <ul class="tut-list">
-        <li><b>AI Mode</b>: <code>OFF</code> (tanpa AI), <code>LOCAL OLLAMA</code>, <code>GEMINI</code>, atau <code>OPENAI</code>.</li>
-        <li><b>Confidence Threshold</b>: minimal <code>0.70</code> agar rekomendasi AI diterima; di bawah itu → Unauthorized.</li>
-        <li>Timeout <code>2 detik</code> — jika AI tidak respon, otomatis fallback ke Layer 4/Unauthorized tanpa menghentikan upload.</li>
-        <li><b>API Key</b> hanya di sesi ini (tidak disimpan permanen).</li>
+        <li>
+          <i class="fa-solid fa-microchip text-accent"></i>
+          <div><strong>Pilihan Mode AI</strong>: <span class="coa-dropdown-badge">GEMINI</span> (Google AI), <span class="coa-dropdown-badge">OPENAI</span> (GPT), <span class="coa-dropdown-badge">LOCAL OLLAMA</span> (100% lokal & privat), atau <span class="coa-dropdown-badge">OFF</span>.</div>
+        </li>
+        <li>
+          <i class="fa-solid fa-sliders text-cyan"></i>
+          <div><strong>Confidence Threshold</strong>: batas keyakinan minimum (default <span class="coa-dropdown-badge">0.70</span>) agar alokasi AI disetujui; jika di bawah itu, otomatis dialihkan ke status Unauthorized untuk review manual.</div>
+        </li>
+        <li>
+          <i class="fa-solid fa-stopwatch text-warning"></i>
+          <div><strong>Safety Timeout 2 detik</strong> — jika server AI tidak merespons dalam 2 detik, sistem otomatis fallback aman tanpa menghentikan atau memperlambat upload transaksi.</div>
+        </li>
+        <li>
+          <i class="fa-solid fa-lock text-emerald"></i>
+          <div><strong>Privasi Terjamin</strong>: API Key hanya tersimpan pada memori sesi peramban Anda dan tidak pernah dikirim ke server luar manapun selain endpoint AI resmi yang Anda pilih.</div>
+        </li>
       </ul>`
   },
   backup: {
     title: 'Cara Kerja — Backup & Pulih',
     html: `
-      <p class="text-muted mb-2">Simpan dan muat seluruh master data (COA, Program, Donatur, Alias).</p>
+      <div class="tut-intro">
+        <i class="fa-solid fa-circle-info text-accent"></i>
+        <span>Simpan dan pulihkan seluruh master data (COA, Program, Donatur, dan Alias) secara aman kapan saja.</span>
+      </div>
       <ul class="tut-list">
-        <li><b>Ekspor Config JSON</b>: unduh semua master data ke satu file.</li>
-        <li><b>Impor Config JSON</b>: muat kembali konfigurasi dari file (menimpa data sesi).</li>
-        <li><b>Reset ke Default</b>: kembalikan ke data bawaan (hati-hati, menghapus perubahan Anda).</li>
+        <li>
+          <i class="fa-solid fa-file-export text-accent"></i>
+          <div><strong>Ekspor Config JSON</strong>: unduh dan simpan cadangan seluruh konfigurasi master data ke satu berkas JSON di komputer Anda.</div>
+        </li>
+        <li>
+          <i class="fa-solid fa-file-import text-cyan"></i>
+          <div><strong>Impor Config JSON</strong>: muat kembali data konfigurasi dari berkas JSON (bisa mode gabung atau timpa).</div>
+        </li>
+        <li>
+          <i class="fa-solid fa-rotate-left text-rose"></i>
+          <div><strong>Reset ke Default</strong>: kembalikan semua master data ke setelan bawaan sistem ZISWAFier Lite.</div>
+        </li>
       </ul>`
   }
 };
@@ -1192,18 +1686,186 @@ let _chartCat = null;
 let _periodFilter = 'ALL';
 let _dateFrom = null, _dateTo = null;
 
-document.getElementById('report-period-select').addEventListener('change', e => {
-  _periodFilter = e.target.value;
-  const customRow = document.getElementById('custom-date-row');
-  customRow.classList.toggle('hidden', _periodFilter !== 'CUSTOM');
-  _selectedIds.clear();
-  _isGlobalSelected = false;
-  if (_periodFilter !== 'CUSTOM') {
-    _dateFrom = null;
-    _dateTo = null;
-    setFilter({ periodFilter: _periodFilter, dateFrom: null, dateTo: null });
+function setupReportPeriodDropdown(currentVal = 'ALL') {
+  _periodFilter = currentVal;
+  setupGenericDropdown({
+    wrapperId: 'wrapper-report-period',
+    triggerId: 'trigger-report-period',
+    menuId: 'menu-report-period',
+    listId: 'list-report-period',
+    textId: 'text-report-period',
+    hiddenInputId: 'report-period-select',
+    currentValue: currentVal,
+    getItems: () => [
+      { value: 'ALL', label: 'Semua Waktu' },
+      { value: 'THIS_MONTH', label: 'Bulan Ini' },
+      { value: 'LAST_MONTH', label: 'Bulan Lalu' },
+      { value: 'THIS_YEAR', label: 'Tahun Ini' },
+      { value: 'CUSTOM', label: 'Custom Rentang Tanggal...' }
+    ],
+    onSelect: (val) => {
+      _periodFilter = val;
+      const customRow = document.getElementById('custom-date-row');
+      if (customRow) customRow.classList.toggle('hidden', _periodFilter !== 'CUSTOM');
+      _selectedIds.clear();
+      _isGlobalSelected = false;
+      if (_periodFilter !== 'CUSTOM') {
+        _dateFrom = null;
+        _dateTo = null;
+        setFilter({ periodFilter: _periodFilter, dateFrom: null, dateTo: null });
+      }
+    }
+  });
+}
+
+function setupReportCategoryDropdown(currentVal = 'ALL') {
+  setupGenericDropdown({
+    wrapperId: 'wrapper-report-category',
+    triggerId: 'trigger-report-category',
+    menuId: 'menu-report-category',
+    listId: 'list-report-category',
+    searchId: 'search-report-category',
+    textId: 'text-report-category',
+    hiddenInputId: 'report-category-select',
+    currentValue: currentVal,
+    placeholder: 'Semua Kategori & Status',
+    emptyText: 'Tidak ada status yang cocok',
+    getItems: () => [
+      { value: 'ALL', label: 'Semua Kategori & Status' },
+      { value: 'UNAUTHORIZED', label: 'Unauthorized (Belum Terpetakan)', badge: '40201000' },
+      { value: 'KEYWORD', label: 'Kata Kunci (Keyword)', badge: 'Keyword' },
+      { value: 'DONATUR_TETAP', label: 'Donatur Tetap', badge: 'Donatur' },
+      { value: 'CAMPAIGN_TAIL', label: 'Kode Ekor Nominal', badge: 'Ekor' },
+      { value: 'EXPENSE', label: 'Beban / Pengeluaran', badge: '60100008' },
+      { value: 'ORG_ALIAS', label: 'Alias Lembaga / Yayasan', badge: 'Yayasan' },
+      { value: 'AI_SEMANTIC', label: 'Rekomendasi AI', badge: 'AI' },
+      { value: 'MANUAL_OVERRIDE', label: 'Koreksi Manual', badge: 'Manual' }
+    ],
+    onSelect: (val) => {
+      _selectedIds.clear();
+      _isGlobalSelected = false;
+      preserveScroll(() => {
+        setFilter({ filterCategory: val });
+      });
+    }
+  });
+}
+
+function setupSearchScopeControl(initialScope = 'ALL') {
+  const wrapper = document.getElementById('wrapper-search-scope');
+  const trigger = document.getElementById('trigger-search-scope');
+  const menu = document.getElementById('menu-search-scope');
+  const labelEl = document.getElementById('label-search-scope');
+  const hiddenInput = document.getElementById('report-search-scope');
+  const searchInput = document.getElementById('report-search-input');
+  const clearBtn = document.getElementById('btn-clear-search');
+  const countEl = document.getElementById('search-result-count');
+  if (!trigger || !menu || !hiddenInput) return;
+
+  const SCOPE_CONFIG = {
+    ALL: { label: 'Semua', placeholder: 'Cari keterangan, no COA, akun...', isFiltered: false, title: 'Cakupan: Semua Bidang' },
+    COA: { label: 'No COA', placeholder: 'Cari nomor COA...', isFiltered: true, title: 'Cakupan: Nomor COA' },
+    COA_NAME: { label: 'Nama Akun', placeholder: 'Cari nama akun COA...', isFiltered: true, title: 'Cakupan: Nama Akun COA' },
+    LABEL: { label: 'Keterangan', placeholder: 'Cari keterangan / donatur...', isFiltered: true, title: 'Cakupan: Keterangan / Donatur' }
+  };
+
+  function updateScopeUI(scope) {
+    const cfg = SCOPE_CONFIG[scope] || SCOPE_CONFIG.ALL;
+    hiddenInput.value = scope;
+    if (labelEl) labelEl.textContent = cfg.label;
+    if (searchInput) searchInput.placeholder = cfg.placeholder;
+    trigger.title = cfg.title;
+    trigger.classList.toggle('is-filtered', cfg.isFiltered);
+
+    menu.querySelectorAll('.search-scope-item').forEach(item => {
+      item.classList.toggle('selected', item.dataset.scope === scope);
+    });
   }
-});
+
+  updateScopeUI(initialScope);
+
+  if (!trigger.dataset.bound) {
+    trigger.dataset.bound = 'true';
+
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = !menu.classList.contains('hidden');
+      document.querySelectorAll('.coa-dropdown-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
+      document.querySelectorAll('.coa-dropdown-wrapper.open').forEach(w => w.classList.remove('open'));
+      if (!isOpen) {
+        menu.classList.remove('hidden');
+        wrapper.classList.add('open');
+      } else {
+        menu.classList.add('hidden');
+        wrapper.classList.remove('open');
+      }
+    });
+
+    menu.addEventListener('click', (e) => {
+      const item = e.target.closest('.search-scope-item');
+      if (!item) return;
+      const scope = item.dataset.scope || 'ALL';
+      updateScopeUI(scope);
+      menu.classList.add('hidden');
+      wrapper.classList.remove('open');
+
+      _selectedIds.clear();
+      _isGlobalSelected = false;
+      preserveScroll(() => {
+        setFilter({ searchScope: scope });
+        if (searchInput && searchInput.value) {
+          const { total } = getPagedRows();
+          if (countEl) {
+            countEl.textContent = `${total} hasil`;
+            countEl.classList.remove('hidden');
+          }
+        }
+      });
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#wrapper-search-scope')) {
+        menu.classList.add('hidden');
+        wrapper.classList.remove('open');
+      }
+    });
+  }
+
+  // Clear button & counter management
+  if (searchInput) {
+    function updateSearchUI() {
+      const val = searchInput.value.trim();
+      if (clearBtn) clearBtn.classList.toggle('hidden', !val);
+      if (countEl) {
+        if (val) {
+          const { total } = getPagedRows();
+          countEl.textContent = `${total} hasil`;
+          countEl.classList.remove('hidden');
+        } else {
+          countEl.textContent = '';
+          countEl.classList.add('hidden');
+        }
+      }
+    }
+
+    if (!searchInput.dataset.boundUnified) {
+      searchInput.dataset.boundUnified = 'true';
+
+      if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+          searchInput.value = '';
+          updateSearchUI();
+          _selectedIds.clear();
+          _isGlobalSelected = false;
+          preserveScroll(() => {
+            setFilter({ searchTerm: '' });
+          });
+          searchInput.focus();
+        });
+      }
+    }
+  }
+}
 
 document.getElementById('btn-apply-date').addEventListener('click', () => {
   _dateFrom = document.getElementById('date-from').value;
@@ -1217,36 +1879,35 @@ document.getElementById('btn-apply-date').addEventListener('click', () => {
 
 let _searchDebounce = null;
 document.getElementById('report-search-input').addEventListener('input', e => {
+  const val = e.target.value;
+  const clearBtn = document.getElementById('btn-clear-search');
+  if (clearBtn) clearBtn.classList.toggle('hidden', !val);
+
   if (_searchDebounce) clearTimeout(_searchDebounce);
   _searchDebounce = setTimeout(() => {
     _selectedIds.clear();
     _isGlobalSelected = false;
     preserveScroll(() => {
-      setFilter({ searchTerm: e.target.value });
+      setFilter({ searchTerm: val });
       const { total } = getPagedRows();
       const countEl = document.getElementById('search-result-count');
-      if (countEl) countEl.textContent = e.target.value ? ` (${total} hasil)` : '';
+      if (countEl) {
+        if (val) {
+          countEl.textContent = `${total} hasil`;
+          countEl.classList.remove('hidden');
+        } else {
+          countEl.textContent = '';
+          countEl.classList.add('hidden');
+        }
+      }
     });
   }, 250);
 });
-document.getElementById('report-search-scope').addEventListener('change', e => {
-  _selectedIds.clear();
-  _isGlobalSelected = false;
-  preserveScroll(() => {
-    setFilter({ searchScope: e.target.value });
-  });
-});
-document.getElementById('report-category-select').addEventListener('change', e => {
-  _selectedIds.clear();
-  _isGlobalSelected = false;
-  preserveScroll(() => {
-    setFilter({ filterCategory: e.target.value });
-  });
-});
+
 document.getElementById('card-stat-unauthorized')?.addEventListener('click', () => {
-  const select = document.getElementById('report-category-select');
-  const next = select.value === 'UNAUTHORIZED' ? 'ALL' : 'UNAUTHORIZED';
-  select.value = next;
+  const currentVal = document.getElementById('report-category-select')?.value;
+  const next = currentVal === 'UNAUTHORIZED' ? 'ALL' : 'UNAUTHORIZED';
+  setupReportCategoryDropdown(next);
   _selectedIds.clear();
   _isGlobalSelected = false;
   preserveScroll(() => {
@@ -1519,10 +2180,6 @@ function renderTable() {
             ? '<span class="badge badge-expense">Beban</span>'
             : '<span class="badge badge-ok">OK</span>';
 
-      const waBtn = row.matchedDonorId ? `<button class="btn-icon-sm btn-wa${phone ? '' : ' disabled'}" data-action="open-wa" data-id="${esc(row.id)}"${phone ? '' : ' disabled title="Donatur tidak memiliki nomor HP"'} title="Kirim konfirmasi WA">
-            <i class="fa-brands fa-whatsapp"></i>
-          </button>` : '';
-
       const isCompact = _tableMode === 'compact';
       const coaTooltip = `No. Akun: ${row.assignedCoa || '-'}\nNama Akun: ${row.newName || '-'}\nProgram: ${prog?.name || '-'}`;
       const rationaleTooltip = `Layer: ${row.matchedLayer || 'MANUAL'}\nKeyakinan AI: ${row.confidence != null ? (row.confidence * 100).toFixed(0) + '%' : '-'}\nAlasan: ${row.reasoning || '-'}`;
@@ -1546,9 +2203,11 @@ function renderTable() {
             <div class="keterangan-text">${esc(rawText)}</div>
           </td>
           <td data-tooltip="${esc(coaTooltip)}">
-            <select class="coa-select" data-id="${esc(row.id)}">
-              ${master.coaList.map(c => `<option value="${c.code}" ${c.code === row.assignedCoa ? 'selected' : ''}>${esc(c.code)} - ${esc(c.name)}</option>`).join('')}
-            </select>
+            <button type="button" class="coa-table-btn" data-id="${esc(row.id)}" data-coa="${row.assignedCoa}" title="Klik untuk ubah alokasi COA">
+              <span class="coa-dropdown-badge">${row.assignedCoa}</span>
+              <span class="coa-table-name">${esc(row.newName || master.coaList.find(c => c.code === row.assignedCoa)?.name || '')}</span>
+              <i class="fa-solid fa-chevron-down coa-chevron"></i>
+            </button>
           </td>
           <td class="text-xs" data-tooltip="${esc(rationaleTooltip)}">
             <div class="layer-pill-compact">
@@ -1568,9 +2227,11 @@ function renderTable() {
             <div class="keterangan-text">${esc(rawText)}</div>
           </td>
           <td>
-            <select class="coa-select" data-id="${esc(row.id)}">
-              ${master.coaList.map(c => `<option value="${c.code}" ${c.code === row.assignedCoa ? 'selected' : ''}>${esc(c.code)} - ${esc(c.name)}</option>`).join('')}
-            </select>
+            <button type="button" class="coa-table-btn" data-id="${esc(row.id)}" data-coa="${row.assignedCoa}" title="Klik untuk ubah alokasi COA">
+              <span class="coa-dropdown-badge">${row.assignedCoa}</span>
+              <span class="coa-table-name">${esc(row.newName || master.coaList.find(c => c.code === row.assignedCoa)?.name || '')}</span>
+              <i class="fa-solid fa-chevron-down coa-chevron"></i>
+            </button>
             ${prog ? `<div class="text-muted text-xs mt-1 truncate-1" data-tooltip="${esc(prog.name)}"><i class="fa-solid fa-hand-holding-heart"></i> ${esc(prog.name)}</div>` : ''}
           </td>
           <td class="text-xs">
@@ -1591,8 +2252,6 @@ function renderTable() {
   document.getElementById('report-select-all').checked = allPageSelected;
 
   document.querySelectorAll('.row-checkbox').forEach(cb => cb.addEventListener('change', onRowCheckbox));
-  document.querySelectorAll('.coa-select').forEach(sel => sel.addEventListener('change', onCoaChange));
-  document.querySelectorAll('[data-action="open-wa"]').forEach(btn => btn.addEventListener('click', onWaClick));
 
   applyTableMode();
   updateSelectionBanner();
@@ -1693,6 +2352,128 @@ function onRowCheckbox(e) {
   document.getElementById('report-select-all').checked = rows.length > 0 && rows.every(r => _selectedIds.has(r.id));
   updateSelectionBanner();
   updateGlobalSelectionBanner();
+}
+
+let _activeTableCoaBtn = null;
+
+function initGlobalCoaPicker() {
+  const picker = document.getElementById('global-coa-picker');
+  const searchInput = document.getElementById('search-global-coa-picker');
+  const listEl = document.getElementById('list-global-coa-picker');
+  if (!picker || !listEl) return;
+
+  function renderList(query = '') {
+    const m = getMaster();
+    const q = query.trim().toLowerCase();
+    const filtered = m.coaList.filter(c => {
+      if (!q) return true;
+      return String(c.code).includes(q) || (c.name || '').toLowerCase().includes(q);
+    });
+
+    if (filtered.length === 0) {
+      listEl.innerHTML = '<div class="coa-dropdown-empty">Tidak ada akun COA yang cocok</div>';
+      return;
+    }
+
+    const currentCoa = _activeTableCoaBtn?.dataset.coa;
+    listEl.innerHTML = filtered.map(c => {
+      const isSelected = String(c.code) === String(currentCoa);
+      return `<div class="coa-dropdown-item ${isSelected ? 'selected' : ''}" data-code="${c.code}">
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 0%; min-width: 0;">${esc(c.name)}</span>
+        <span class="coa-dropdown-badge">${c.code}</span>
+      </div>`;
+    }).join('');
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      renderList(e.target.value);
+    });
+    searchInput.addEventListener('click', (e) => e.stopPropagation());
+  }
+
+  listEl.addEventListener('click', (e) => {
+    const item = e.target.closest('.coa-dropdown-item');
+    if (!item || !_activeTableCoaBtn) return;
+    const newCoa = parseInt(item.dataset.code, 10);
+    const rowId = _activeTableCoaBtn.dataset.id;
+    const master = getMaster();
+    const coaEntry = master.coaList.find(c => c.code === newCoa);
+
+    preserveScroll(() => {
+      updateRow(rowId, {
+        assignedCoa: newCoa,
+        newName: coaEntry?.name || String(newCoa),
+        matchedLayer: 'MANUAL_OVERRIDE',
+        isOverridden: true,
+        confidence: 1.0,
+        reasoning: 'Override manual',
+        isExpense: newCoa === 60100008
+      });
+      renderDashboard();
+    });
+
+    picker.classList.add('hidden');
+    _activeTableCoaBtn = null;
+  });
+
+  // Global button click delegation
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.coa-table-btn');
+    if (btn) {
+      e.stopPropagation();
+      document.querySelectorAll('.coa-dropdown-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
+      document.querySelectorAll('.coa-dropdown-wrapper.open').forEach(w => w.classList.remove('open'));
+      document.querySelectorAll('.sys-coa-item.has-dropdown-open').forEach(i => i.classList.remove('has-dropdown-open'));
+
+      if (_activeTableCoaBtn === btn && !picker.classList.contains('hidden')) {
+        picker.classList.add('hidden');
+        _activeTableCoaBtn = null;
+        return;
+      }
+
+      _activeTableCoaBtn = btn;
+      const rect = btn.getBoundingClientRect();
+      picker.classList.remove('hidden');
+
+      const pickerHeight = 270;
+      const pickerWidth = Math.max(260, rect.width);
+      let top = rect.bottom + 4;
+      let left = rect.left;
+
+      if (left + pickerWidth > window.innerWidth - 10) {
+        left = window.innerWidth - pickerWidth - 10;
+      }
+      if (left < 10) left = 10;
+
+      if (top + pickerHeight > window.innerHeight && rect.top > pickerHeight) {
+        top = rect.top - pickerHeight - 4;
+      }
+
+      picker.style.top = `${top}px`;
+      picker.style.left = `${left}px`;
+      picker.style.width = `${pickerWidth}px`;
+
+      if (searchInput) {
+        searchInput.value = '';
+        setTimeout(() => searchInput.focus(), 50);
+      }
+      renderList('');
+      return;
+    }
+
+    if (!e.target.closest('#global-coa-picker')) {
+      picker.classList.add('hidden');
+      _activeTableCoaBtn = null;
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !picker.classList.contains('hidden')) {
+      picker.classList.add('hidden');
+      _activeTableCoaBtn = null;
+    }
+  });
 }
 
 function onCoaChange(e) {
@@ -1985,39 +2766,6 @@ function renderPagination(page, totalPages, total, start, end) {
   });
 }
 
-// ─── WA COMPOSE ───────────────────────────────────────────────────────────────
-
-function onWaClick(e) {
-  const id = e.target.closest('[data-id]')?.dataset.id;
-  if (!id) return;
-  const row = getRows().find(r => r.id === id);
-  if (!row) return;
-  const master = getMaster();
-  const donor = master.donors.find(d => d.id === row.matchedDonorId);
-  const prog = master.programs.find(p => p.id === row.assignedProgramId);
-  const orgName = master.settings?.orgName || 'Lembaga Amil ZISWAF';
-  const progName = prog?.name || 'Donasi Umum';
-  const phone = normPhone(donor?.phone || '');
-  const donorName = donor?.name || 'Donatur';
-  const nominal = fmtRp(row.rawAmount);
-  const tgl = row.transactionDate || '-';
-
-  const msg = `Assalamu'alaikum Warahmatullahi Wabarakatuh,\n\nYth. Bpk/Ibu *${donorName}*,\nTerima kasih atas kebaikan Anda. Kami mendeteksi transfer donasi sebesar *${nominal}* pada tanggal *${tgl}* yang kami alokasikan untuk *${progName}*.\n\nMohon konfirmasi alokasi niat donasi Anda:\n1️⃣ *1* - Benar Saya & Sesuai (${progName})\n2️⃣ *2* - Benar Saya, Ingin Ubah Program Lain\n3️⃣ *3* - Bukan Transfer Saya (Dibatalkan)\n4️⃣ *4* - Konsultasi dengan Petugas\n\nSemoga Allah SWT membalas dengan keberkahan yang berlipat ganda. Aamiin.\n\n— ${orgName}`;
-
-  document.getElementById('wa-phone').value = phone;
-  document.getElementById('wa-message').value = msg;
-  openModal('modal-wa');
-}
-
-document.getElementById('btn-open-wa').addEventListener('click', () => {
-  let phone = normPhone(document.getElementById('wa-phone').value);
-  const msg = document.getElementById('wa-message').value;
-  if (!phone) { showToast('Nomor HP wajib diisi', 'error'); return; }
-  const url = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
-  window.open(url, '_blank');
-  closeModal('modal-wa');
-});
-
 // ─── EXPORT ───────────────────────────────────────────────────────────────────
 
 document.getElementById('btn-export-xlsx').addEventListener('click', () => {
@@ -2170,25 +2918,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 1. Restore Filter Controls DOM values from persistent session state
   const curFilter = getFilter();
-  const catSelect = document.getElementById('report-category-select');
-  if (catSelect && curFilter.filterCategory) catSelect.value = curFilter.filterCategory;
-
-  const scopeSelect = document.getElementById('report-search-scope');
-  if (scopeSelect && curFilter.searchScope) scopeSelect.value = curFilter.searchScope;
+  setupReportCategoryDropdown(curFilter.filterCategory || 'ALL');
+  setupReportPeriodDropdown(curFilter.periodFilter || 'ALL');
+  setupSearchScopeControl(curFilter.searchScope || 'ALL');
+  initGlobalCoaPicker();
 
   const searchInput = document.getElementById('report-search-input');
   if (searchInput && curFilter.searchTerm) {
     searchInput.value = curFilter.searchTerm;
     const countEl = document.getElementById('search-result-count');
-    if (countEl) countEl.textContent = ` (${getPagedRows().total} hasil)`;
+    if (countEl) {
+      countEl.textContent = `${getPagedRows().total} hasil`;
+      countEl.classList.remove('hidden');
+    }
+    const clearBtn = document.getElementById('btn-clear-search');
+    if (clearBtn) clearBtn.classList.remove('hidden');
   }
 
-  const periodSelect = document.getElementById('report-period-select');
-  if (periodSelect && curFilter.periodFilter) {
-    periodSelect.value = curFilter.periodFilter;
-    const customRow = document.getElementById('custom-date-row');
-    if (customRow) customRow.classList.toggle('hidden', curFilter.periodFilter !== 'CUSTOM');
-  }
+  const customRow = document.getElementById('custom-date-row');
+  if (customRow) customRow.classList.toggle('hidden', curFilter.periodFilter !== 'CUSTOM');
 
   // 2. Restore active page & subtab
   let savedPage = null;

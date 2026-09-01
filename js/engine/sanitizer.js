@@ -1,5 +1,52 @@
+/**
+ * Engine-level Indonesian Islamic spelling normalization (institution-agnostic).
+ * Canonicalizes common orthographic variants so keyword matching is robust
+ * across different institutions and mutation formats.
+ * Safe: these are 1:1 linguistic mappings, not dataset-specific terms.
+ */
+export function normalizeForMatch(text) {
+  return String(text || '')
+    .toUpperCase()
+    .replace(/'/g, '').replace(/’/g, '')
+    .replace(/\bWAQAF\b/g, 'WAKAF')
+    .replace(/\bWAQF\b/g, 'WAKAF')
+    .replace(/\bWAAKAF\b/g, 'WAKAF')
+    .replace(/\bWAKF\b/g, 'WAKAF')
+    .replace(/\bMESJID\b/gi, 'MASJID')
+    .replace(/\bMASJIT\b/gi, 'MASJID')
+    .replace(/ALQURAN/g, 'AL QURAN')
+    .replace(/AL-QURAN\b/g, 'AL QURAN')
+    .replace(/\bQUR'?AN\b/g, 'QURAN')
+    // Ensure "AL QURAN" matches "ALQURAN" keywords (remove space)
+    // Use \b to avoid matching "AL" inside words like "PENGHAFAL"
+    .replace(/\bAL QURAN/g, 'ALQURAN')
+    // Jumat variants → JUMAT
+    .replace(/JUM'AT\b/g, 'JUMAT')
+    .replace(/JUMAT\b/g, 'JUMAT')
+    .replace(/JUM'AT/g, 'JUMAT')
+    // Donation word variants → canonical
+    .replace(/\bSEDQOH\b/g, 'SHODAQOH')
+    .replace(/\bSODAQOH\b/g, 'SHODAQOH')
+    .replace(/\bSHADAQAH\b/g, 'SHODAQOH')
+    .replace(/\bSADAQAH\b/g, 'SHODAQOH')
+    .replace(/\bSADAQOH\b/g, 'SHODAQOH')
+    .replace(/\bINFQ\b/g, 'INFAQ')
+    .replace(/\bINFAK\b/g, 'INFAQ')
+    .replace(/\bFIDYA\b/g, 'FIDYAH')
+    .replace(/\bKURBAN\b/g, 'QURBAN')
+    .replace(/\bZAKAH\b/g, 'ZAKAT')
+    .replace(/\bQURBAN\b/g, 'QURBAN')
+    .replace(/\bIFTAR\b/g, 'IFTOR')
+    .replace(/\bIFTHAR\b/g, 'IFTOR')
+    .replace(/\bFITROH\b/g, 'FITRAH')
+    // PEMB abbreviation → PEMBANGUNAN
+    .replace(/\bPEMB\b/g, 'PEMBANGUNAN')
+    .toLowerCase();  // return lowercase for consistent substring matching
+}
+
 export function cleanTransactionText(rawLabel, companyAliases) {
   let workingLabel = String(rawLabel || '');
+  
   const BANKISH = /^(?:bank[\w\s.]*|bca|bni|bri|mandiri|bsi|btn|danamon|cimb\s*niaga|cimb|permata|mega|ocbc|nisp|panin|uob|maybank|jenius|seabank|jago|nobu|hsbc|citibank|alfa ?bank|line bank|dana|gopay|ovo|shopeepay|linkaja|sakuku|paytren)$/i;
 
   const nameFromNotes = (notes) => {
@@ -29,12 +76,12 @@ export function cleanTransactionText(rawLabel, companyAliases) {
       if (match3) {
         extractedSenderName = nameFromNotes(match3[1]);
       } else {
-        // Pattern 4: "{digits.cents} {Name}"
-        const regex4 = /^(\d+\.\d{2})\s+([A-Za-z .,]+)$/;
-        const match4 = workingLabel.match(regex4);
-        if (match4) {
-          extractedSenderName = match4[2].trim();
-        } else {
+// Pattern 4: "{prefix} {amount} {Name}" e.g. "0102/Ftscy/Ws95271 50000.00 Rio Kurnia Setyawa"
+      const regex4 = /\d+\.\d{2}\s+([A-Za-z][\w\s.,'-]{1,60})$/;
+      const match4 = workingLabel.match(regex4);
+      if (match4) {
+        extractedSenderName = match4[1].trim();
+      } else {
           // Pattern 5: "{MM/DD} {TRX-CODE} {Name}"  e.g. "02/07 Zn2W1 Abdul Ridwan" (BCA format)
           const regex5 = /^\d{2}\/\d{2}\s+\S+\s+([A-Za-z][\w\s.,'-]{1,60})$/;
           const match5 = workingLabel.match(regex5);

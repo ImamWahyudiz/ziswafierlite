@@ -57,7 +57,7 @@
     <meta name="robots" content="index, follow">
     
     <!-- Content Security Policy (Jaminan 100% Keamanan & Tanpa Transmisi Server) -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' http://localhost:11434 https://generativelanguage.googleapis.com https://api.openai.com https://openrouter.ai;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' https://cdn.jsdelivr.net http://localhost:11434 https://generativelanguage.googleapis.com https://api.openai.com https://openrouter.ai;">
 
     <!-- Primary Favicons & Icons -->
     <link rel="icon" type="image/png" href="./logo.png">
@@ -160,12 +160,22 @@
                         </div>
                         <div class="sys-coa-inputs mt-2">
                             <div class="form-group mb-1">
-                                <label class="text-xs text-muted" for="sys-coa-unauth-code">Nomor / Kode COA:</label>
-                                <input type="number" class="form-control form-control-sm font-mono" id="sys-coa-unauth-code" placeholder="40201000">
-                            </div>
-                            <div class="form-group mb-0">
-                                <label class="text-xs text-muted" for="sys-coa-unauth-name">Nama Akun:</label>
-                                <input type="text" class="form-control form-control-sm" id="sys-coa-unauth-name" placeholder="Penerimaan Infak &amp; Sedekah - Unauthorized">
+                                <label class="text-xs text-muted" for="trigger-sys-coa-unauth">Pilih Akun COA:</label>
+                                <div class="coa-dropdown-wrapper" id="wrapper-sys-coa-unauth">
+                                    <button type="button" class="coa-dropdown-trigger" id="trigger-sys-coa-unauth" aria-label="Pilih Akun Karantina">
+                                        <span class="coa-trigger-text" id="text-sys-coa-unauth">Pilih Akun COA...</span>
+                                        <i class="fa-solid fa-chevron-down coa-chevron"></i>
+                                    </button>
+                                    <div class="coa-dropdown-menu hidden" id="menu-sys-coa-unauth">
+                                        <div class="coa-dropdown-search-box">
+                                            <i class="fa-solid fa-magnifying-glass"></i>
+                                            <input type="text" placeholder="Cari kode / nama COA..." class="coa-dropdown-search-input" id="search-sys-coa-unauth">
+                                        </div>
+                                        <div class="coa-dropdown-list" id="list-sys-coa-unauth"></div>
+                                    </div>
+                                    <input type="hidden" id="sys-coa-unauth-code" value="">
+                                    <input type="hidden" id="sys-coa-unauth-name" value="">
+                                </div>
                             </div>
                         </div>
                         <div class="sys-coa-hint mt-2">Menampung mutasi masuk yang gagal dikenali oleh semua layer.</div>
@@ -178,12 +188,22 @@
                         </div>
                         <div class="sys-coa-inputs mt-2">
                             <div class="form-group mb-1">
-                                <label class="text-xs text-muted" for="sys-coa-umum-code">Nomor / Kode COA:</label>
-                                <input type="number" class="form-control form-control-sm font-mono" id="sys-coa-umum-code" placeholder="40201001">
-                            </div>
-                            <div class="form-group mb-0">
-                                <label class="text-xs text-muted" for="sys-coa-umum-name">Nama Akun:</label>
-                                <input type="text" class="form-control form-control-sm" id="sys-coa-umum-name" placeholder="Penerimaan Infak &amp; Sedekah - Umum">
+                                <label class="text-xs text-muted" for="trigger-sys-coa-umum">Pilih Akun COA:</label>
+                                <div class="coa-dropdown-wrapper" id="wrapper-sys-coa-umum">
+                                    <button type="button" class="coa-dropdown-trigger" id="trigger-sys-coa-umum" aria-label="Pilih Akun Baseline">
+                                        <span class="coa-trigger-text" id="text-sys-coa-umum">Pilih Akun COA...</span>
+                                        <i class="fa-solid fa-chevron-down coa-chevron"></i>
+                                    </button>
+                                    <div class="coa-dropdown-menu hidden" id="menu-sys-coa-umum">
+                                        <div class="coa-dropdown-search-box">
+                                            <i class="fa-solid fa-magnifying-glass"></i>
+                                            <input type="text" placeholder="Cari kode / nama COA..." class="coa-dropdown-search-input" id="search-sys-coa-umum">
+                                        </div>
+                                        <div class="coa-dropdown-list" id="list-sys-coa-umum"></div>
+                                    </div>
+                                    <input type="hidden" id="sys-coa-umum-code" value="">
+                                    <input type="hidden" id="sys-coa-umum-name" value="">
+                                </div>
                             </div>
                         </div>
                         <div class="sys-coa-hint mt-2">Akun tujuan default donatur tetap atau transfer tanpa keterangan program.</div>
@@ -196,12 +216,22 @@
                         </div>
                         <div class="sys-coa-inputs mt-2">
                             <div class="form-group mb-1">
-                                <label class="text-xs text-muted" for="sys-coa-expense-code">Nomor / Kode COA:</label>
-                                <input type="number" class="form-control form-control-sm font-mono" id="sys-coa-expense-code" placeholder="60100008">
-                            </div>
-                            <div class="form-group mb-0">
-                                <label class="text-xs text-muted" for="sys-coa-expense-name">Nama Akun:</label>
-                                <input type="text" class="form-control form-control-sm" id="sys-coa-expense-name" placeholder="Beban Lain-Lain (Pengeluaran Bank)">
+                                <label class="text-xs text-muted" for="trigger-sys-coa-expense">Pilih Akun COA:</label>
+                                <div class="coa-dropdown-wrapper" id="wrapper-sys-coa-expense">
+                                    <button type="button" class="coa-dropdown-trigger" id="trigger-sys-coa-expense" aria-label="Pilih Akun Uang Keluar">
+                                        <span class="coa-trigger-text" id="text-sys-coa-expense">Pilih Akun COA...</span>
+                                        <i class="fa-solid fa-chevron-down coa-chevron"></i>
+                                    </button>
+                                    <div class="coa-dropdown-menu hidden" id="menu-sys-coa-expense">
+                                        <div class="coa-dropdown-search-box">
+                                            <i class="fa-solid fa-magnifying-glass"></i>
+                                            <input type="text" placeholder="Cari kode / nama COA..." class="coa-dropdown-search-input" id="search-sys-coa-expense">
+                                        </div>
+                                        <div class="coa-dropdown-list" id="list-sys-coa-expense"></div>
+                                    </div>
+                                    <input type="hidden" id="sys-coa-expense-code" value="">
+                                    <input type="hidden" id="sys-coa-expense-name" value="">
+                                </div>
                             </div>
                         </div>
                         <div class="sys-coa-hint mt-2">Menampung mutasi debet/keluar atau biaya operasional transfer bank.</div>
@@ -225,8 +255,10 @@
                 <button class="btn btn-ghost btn-sm" id="btn-download-template-coa" title="Unduh template contoh COA">
                     <i class="fa-solid fa-download"></i> <span class="btn-text">Template</span>
                 </button>
-                <span class="panel-hint">Kolom wajib: <code>NO AKUN</code>, <code>NAMA AKUN</code></span>
                 <button class="btn btn-ghost btn-sm ms-auto" data-tutorial="coa" title="Cara kerja tab ini"><i class="fa-solid fa-circle-question"></i> <span class="btn-text">Cara Kerja</span></button>
+            </div>
+            <div class="panel-hint-bar">
+                <span class="panel-hint">Kolom wajib: <code>NO AKUN</code>, <code>NAMA AKUN</code></span>
             </div>
 
             <!-- Selection Status Banner (Berdiri sendiri di atas tabel, tidak menggeser toolbar) -->
@@ -261,8 +293,15 @@
                 <button class="btn btn-ghost btn-sm" id="btn-download-template-program" title="Unduh template contoh Program">
                     <i class="fa-solid fa-download"></i> <span class="btn-text">Template</span>
                 </button>
+                <div class="ms-auto d-flex align-items-center gap-2">
+                    <button class="btn btn-ghost btn-sm" id="btn-analyze-keywords" title="Analisis keyword dengan AI — deteksi kolisi & generate varian">
+                      <i class="fa-solid fa-wand-magic-sparkles text-accent"></i> <span class="btn-text">Analisis Keyword</span>
+                    </button>
+                    <button class="btn btn-ghost btn-sm" data-tutorial="program" title="Cara kerja tab ini"><i class="fa-solid fa-circle-question"></i> <span class="btn-text">Cara Kerja</span></button>
+                </div>
+            </div>
+            <div class="panel-hint-bar">
                 <span class="panel-hint">Kolom wajib: <code>ID</code>, <code>NAMA PROGRAM</code></span>
-                <button class="btn btn-ghost btn-sm ms-auto" data-tutorial="program" title="Cara kerja tab ini"><i class="fa-solid fa-circle-question"></i> <span class="btn-text">Cara Kerja</span></button>
             </div>
             <p class="text-muted text-xs" style="margin-bottom: 0.75rem;"><i class="fa-solid fa-circle-info"></i> Program menentukan akun tujuan dana. <b>Kode Ekor</b> = 3 digit terakhir nominal untuk pencocokan otomatis (Layer 2). <b>Keywords</b> = kata kunci di keterangan mutasi (Layer 4).</p>
 
@@ -298,10 +337,12 @@
                 <button class="btn btn-ghost btn-sm" id="btn-download-template-donor" title="Unduh template contoh Donatur">
                     <i class="fa-solid fa-download"></i> <span class="btn-text">Template</span>
                 </button>
-                <span class="panel-hint">Kolom wajib: <code>NAMA</code></span>
                 <button class="btn btn-ghost btn-sm ms-auto" data-tutorial="donor" title="Cara kerja tab ini"><i class="fa-solid fa-circle-question"></i> <span class="btn-text">Cara Kerja</span></button>
             </div>
-            <p class="text-muted text-xs" style="margin-bottom: 0.75rem;"><i class="fa-solid fa-circle-info"></i> Nama donatur tetap dipakai mendeteksi pengirim (Layer 3). Tombol WA muncul hanya untuk baris transaksi dari donatur terdaftar.</p>
+            <div class="panel-hint-bar">
+                <span class="panel-hint">Kolom wajib: <code>NAMA</code></span>
+            </div>
+            <p class="text-muted text-xs" style="margin-bottom: 0.75rem;"><i class="fa-solid fa-circle-info"></i> Nama donatur tetap dipakai mendeteksi pengirim mutasi bank secara otomatis pada Layer 3.</p>
 
             <!-- Selection Status Banner (Berdiri sendiri di atas tabel, tidak menggeser toolbar) -->
             <div class="master-selection-status hidden" id="donor-selection-status">
@@ -328,8 +369,10 @@
         <div class="subtab-panel" id="panel-alias">
             <div class="panel-toolbar">
                 <button class="btn btn-ghost btn-sm" id="btn-add-alias" title="Tambah Alias Lembaga"><i class="fa-solid fa-plus"></i> <span class="btn-text">Tambah Alias</span></button>
-                <span class="panel-hint">Nama lembaga/yayasan yang akan disaring dari label mutasi</span>
                 <button class="btn btn-ghost btn-sm ms-auto" data-tutorial="alias" title="Cara kerja tab ini"><i class="fa-solid fa-circle-question"></i> <span class="btn-text">Cara Kerja</span></button>
+            </div>
+            <div class="panel-hint-bar">
+                <span class="panel-hint">Nama lembaga/yayasan yang akan disaring dari label mutasi</span>
             </div>
 
             <!-- Selection Status Banner (Berdiri sendiri di atas list, tidak menggeser toolbar) -->
@@ -352,12 +395,16 @@
             <div class="settings-card">
                 <div class="form-group">
                     <label>AI Provider / Mode</label>
-                    <select class="form-select" id="ai-mode">
-                        <option value="OFF">OFF (Layer 0–4 saja)</option>
-                        <option value="GEMINI">GEMINI (Google AI)</option>
-                        <option value="OPENAI">OPENAI (GPT)</option>
-                        <option value="LOCAL_OLLAMA">LOCAL OLLAMA</option>
-                    </select>
+                    <div class="coa-dropdown-wrapper" id="wrapper-ai-mode" style="max-width: 420px;">
+                        <button type="button" class="coa-dropdown-trigger" id="trigger-ai-mode" aria-label="Pilih AI Provider">
+                            <span class="coa-trigger-text" id="text-ai-mode">OFF (Layer 0–4 saja)</span>
+                            <i class="fa-solid fa-chevron-down coa-chevron"></i>
+                        </button>
+                        <div class="coa-dropdown-menu hidden" id="menu-ai-mode">
+                            <div class="coa-dropdown-list" id="list-ai-mode"></div>
+                        </div>
+                        <input type="hidden" id="ai-mode" value="OFF">
+                    </div>
                 </div>
                 <div class="form-group" id="group-ai-model">
                     <label>Nama Model AI <span class="text-muted text-xs">(opsional, default: gemini-3.5-flash / gpt-4o-mini)</span></label>
@@ -376,7 +423,7 @@
                     <input type="number" class="form-control" id="confidence-threshold" min="0" max="1" step="0.05" value="0.70">
                 </div>
                 <div class="form-group">
-                    <label>Nama Lembaga <span class="text-muted text-xs">(untuk konteks AI & template pesan WA)</span></label>
+                    <label>Nama Lembaga <span class="text-muted text-xs">(untuk identitas amil & konteks AI)</span></label>
                     <input type="text" class="form-control" id="org-name" placeholder="Yayasan Amil Zakat...">
                 </div>
                 <div class="d-flex gap-2 flex-wrap mt-3">
@@ -557,38 +604,78 @@
                 <!-- 1. KIRI: Periode -->
                 <div class="filter-group-item filter-period-item">
                     <label><i class="fa-regular fa-calendar"></i> Periode:</label>
-                    <select class="form-select" id="report-period-select">
-                        <option value="ALL">Semua Waktu</option>
-                        <option value="THIS_MONTH">Bulan Ini</option>
-                        <option value="LAST_MONTH">Bulan Lalu</option>
-                        <option value="THIS_YEAR">Tahun Ini</option>
-                        <option value="CUSTOM">Custom Rentang Tanggal...</option>
-                    </select>
+                    <div class="coa-dropdown-wrapper" id="wrapper-report-period">
+                        <button type="button" class="coa-dropdown-trigger" id="trigger-report-period" aria-label="Pilih Periode">
+                            <span class="coa-trigger-text" id="text-report-period">Semua Waktu</span>
+                            <i class="fa-solid fa-chevron-down coa-chevron"></i>
+                        </button>
+                        <div class="coa-dropdown-menu hidden" id="menu-report-period">
+                            <div class="coa-dropdown-list" id="list-report-period"></div>
+                        </div>
+                        <input type="hidden" id="report-period-select" value="ALL">
+                    </div>
                 </div>
                 
                 <!-- 2. TENGAH: Kategori / Status -->
                 <div class="filter-group-item filter-category-item">
                     <label><i class="fa-solid fa-layer-group"></i> Kategori / Status:</label>
-                    <select class="form-select" id="report-category-select">
-                        <option value="ALL">Semua Kategori & Status</option>
-                        <option value="UNAUTHORIZED">Unauthorized (40201000)</option>
-                        <option value="EXPENSE">Beban / Pengeluaran</option>
-                        <option value="MANUAL_OVERRIDE">Manual Override</option>
-                    </select>
+                    <div class="coa-dropdown-wrapper" id="wrapper-report-category">
+                        <button type="button" class="coa-dropdown-trigger" id="trigger-report-category" aria-label="Pilih Kategori / Status">
+                            <span class="coa-trigger-text" id="text-report-category">Semua Kategori & Status</span>
+                            <i class="fa-solid fa-chevron-down coa-chevron"></i>
+                        </button>
+                        <div class="coa-dropdown-menu hidden" id="menu-report-category">
+                            <div class="coa-dropdown-search-box">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" placeholder="Cari status / filter..." class="coa-dropdown-search-input" id="search-report-category">
+                            </div>
+                            <div class="coa-dropdown-list" id="list-report-category"></div>
+                        </div>
+                        <input type="hidden" id="report-category-select" value="ALL">
+                    </div>
                 </div>
 
                 <!-- 3. KANAN: Search -->
                 <div class="filter-group-item search-item">
                     <label><i class="fa-solid fa-magnifying-glass"></i> Cari Mutasi:</label>
-                    <div class="search-input-group">
-                        <select class="form-select-sm search-scope-select" id="report-search-scope">
-                            <option value="ALL">Semua</option>
-                            <option value="COA">No COA</option>
-                            <option value="COA_NAME">Nama Akun</option>
-                            <option value="LABEL">Keterangan / Donatur</option>
-                        </select>
-                        <input type="text" class="form-control" id="report-search-input" placeholder="Cari keterangan, no COA, akun...">
-                        <span class="text-muted text-xs" id="search-result-count"></span>
+                    <div class="search-bar-unified">
+                        <i class="fa-solid fa-magnifying-glass search-bar-icon"></i>
+                        <input type="text" class="search-bar-input" id="report-search-input" placeholder="Cari keterangan, no COA, akun...">
+                        <span class="search-count-pill hidden" id="search-result-count"></span>
+                        <button type="button" class="search-clear-btn hidden" id="btn-clear-search" title="Hapus pencarian">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                        <div class="search-scope-wrapper" id="wrapper-search-scope">
+                            <button type="button" class="search-scope-btn" id="trigger-search-scope" title="Cakupan pencarian">
+                                <i class="fa-solid fa-sliders"></i>
+                                <span class="search-scope-label" id="label-search-scope">Semua</span>
+                                <i class="fa-solid fa-chevron-down text-xs" style="font-size:0.65rem;"></i>
+                            </button>
+                            <div class="search-scope-menu hidden" id="menu-search-scope">
+                                <div class="search-scope-header">Cari Berdasarkan:</div>
+                                <button type="button" class="search-scope-item selected" data-scope="ALL">
+                                    <i class="fa-solid fa-asterisk"></i>
+                                    <span>Semua Bidang</span>
+                                    <i class="fa-solid fa-check scope-check"></i>
+                                </button>
+                                <button type="button" class="search-scope-item" data-scope="COA">
+                                    <i class="fa-solid fa-hashtag"></i>
+                                    <span>Nomor COA</span>
+                                    <i class="fa-solid fa-check scope-check"></i>
+                                </button>
+                                <button type="button" class="search-scope-item" data-scope="COA_NAME">
+                                    <i class="fa-solid fa-book-bookmark"></i>
+                                    <span>Nama Akun COA</span>
+                                    <i class="fa-solid fa-check scope-check"></i>
+                                </button>
+                                <button type="button" class="search-scope-item" data-scope="LABEL">
+                                    <i class="fa-solid fa-comment-dots"></i>
+                                    <span>Keterangan / Donatur</span>
+                                    <i class="fa-solid fa-check scope-check"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <input type="hidden" id="report-search-scope" value="ALL">
                     </div>
                 </div>
 
@@ -760,8 +847,38 @@
                 <input type="text" class="form-control" id="program-name" placeholder="Infak Sedekah Umum" maxlength="120" required>
             </div>
             <div class="form-group">
-                <label>Kode COA</label>
-                <select class="form-select" id="program-coa"></select>
+                <label>Kode COA <span class="text-danger">*</span></label>
+                <div class="coa-dropdown-wrapper" id="wrapper-program-coa">
+                    <button type="button" class="coa-dropdown-trigger" id="trigger-program-coa" aria-label="Pilih Kode COA">
+                        <span class="coa-trigger-text" id="text-program-coa">Pilih Akun COA...</span>
+                        <i class="fa-solid fa-chevron-down coa-chevron"></i>
+                    </button>
+                    <div class="coa-dropdown-menu hidden" id="menu-program-coa">
+                        <div class="coa-dropdown-search-box">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" placeholder="Cari kode / nama COA..." class="coa-dropdown-search-input" id="search-program-coa">
+                        </div>
+                        <div class="coa-dropdown-list" id="list-program-coa"></div>
+                    </div>
+                    <input type="hidden" id="program-coa" value="">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Kategori Induk <span class="text-muted text-xs">(opsional — program induk untuk hierarki)</span></label>
+                <div class="coa-dropdown-wrapper" id="wrapper-program-parent-coa">
+                    <button type="button" class="coa-dropdown-trigger" id="trigger-program-parent-coa" aria-label="Pilih Kategori Induk">
+                        <span class="coa-trigger-text" id="text-program-parent-coa">-- Tanpa Induk / Berdiri Sendiri --</span>
+                        <i class="fa-solid fa-chevron-down coa-chevron"></i>
+                    </button>
+                    <div class="coa-dropdown-menu hidden" id="menu-program-parent-coa">
+                        <div class="coa-dropdown-search-box">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" placeholder="Cari kode / nama COA..." class="coa-dropdown-search-input" id="search-program-parent-coa">
+                        </div>
+                        <div class="coa-dropdown-list" id="list-program-parent-coa"></div>
+                    </div>
+                    <input type="hidden" id="program-parent-coa" value="">
+                </div>
             </div>
             <div class="form-group">
                 <label>Kode Ekor Nominal <span class="text-muted text-xs">(1–6 digit)</span></label>
@@ -797,14 +914,25 @@
                 <input type="text" class="form-control" id="donor-name" placeholder="Budi Santoso" maxlength="100" required>
             </div>
             <div class="form-group">
-                <label>No. HP <span class="text-muted text-xs">(untuk WA, format 08xx atau 628xx)</span></label>
+                <label>No. HP <span class="text-muted text-xs">(format 08xx atau 628xx)</span></label>
                 <input type="tel" class="form-control" id="donor-phone" placeholder="08123456789" maxlength="25">
             </div>
             <div class="form-group">
                 <label>Program Default</label>
-                <select class="form-select" id="donor-program">
-                    <option value="">-- Donasi Umum / Tanpa Program --</option>
-                </select>
+                <div class="coa-dropdown-wrapper" id="wrapper-donor-program">
+                    <button type="button" class="coa-dropdown-trigger" id="trigger-donor-program" aria-label="Pilih Program Default">
+                        <span class="coa-trigger-text" id="text-donor-program">-- Donasi Umum / Tanpa Program --</span>
+                        <i class="fa-solid fa-chevron-down coa-chevron"></i>
+                    </button>
+                    <div class="coa-dropdown-menu hidden" id="menu-donor-program">
+                        <div class="coa-dropdown-search-box">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" placeholder="Cari program donasi..." class="coa-dropdown-search-input" id="search-donor-program">
+                        </div>
+                        <div class="coa-dropdown-list" id="list-donor-program"></div>
+                    </div>
+                    <input type="hidden" id="donor-program" value="">
+                </div>
             </div>
             <div class="modal-footer-actions">
                 <button class="btn btn-ghost" data-close="modal-donor">Batal</button>
@@ -814,30 +942,23 @@
     </div>
 </div>
 
-<!-- Modal: WA Compose -->
-<div class="modal-overlay hidden" id="modal-wa">
-    <div class="modal-card glass">
-        <div class="modal-head">
-            <h2><i class="fa-brands fa-whatsapp text-success"></i> Kirim Konfirmasi WA</h2>
-            <button class="modal-close" data-close="modal-wa">&times;</button>
-        </div>
-        <div class="modal-body">
-            <div class="form-group">
-                <label>Nomor Tujuan <span class="text-muted text-xs">(format 628xx, auto-konversi)</span></label>
-                <input type="tel" class="form-control" id="wa-phone" placeholder="628123456789" maxlength="25">
-            </div>
-            <div class="form-group">
-                <label>Pesan</label>
-                <textarea class="form-control" id="wa-message" rows="10" maxlength="2000"></textarea>
-            </div>
-            <div class="modal-footer-actions">
-                <button class="btn btn-ghost" data-close="modal-wa">Batal</button>
-                <button class="btn btn-success" id="btn-open-wa">
-                    <i class="fa-brands fa-whatsapp"></i> Buka WhatsApp
-                </button>
-            </div>
-        </div>
+<!-- Modal: Keyword Review (AI) -->
+<div class="modal-overlay hidden" id="modal-keyword-review">
+  <div class="modal-card glass" style="max-width: 700px;">
+    <div class="modal-head">
+      <h2><i class="fa-solid fa-wand-magic-sparkles text-accent"></i> Analisis Keyword</h2>
+      <button class="modal-close" data-close="modal-keyword-review">&times;</button>
     </div>
+    <div class="modal-body" id="keyword-review-content" style="max-height: 60vh; overflow-y: auto;">
+      <p class="text-muted text-xs">Memuat saran AI...</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close="modal-keyword-review">Batal</button>
+      <button class="btn btn-primary" id="btn-apply-keyword-suggestions">
+        <i class="fa-solid fa-check"></i> <span class="btn-text">Terapkan Saran</span>
+      </button>
+    </div>
+  </div>
 </div>
 
 <!-- Modal: Master Data Import Mode (Replace vs Merge) -->
@@ -922,10 +1043,19 @@
             <button class="modal-close" data-close="modal-tutorial">&times;</button>
         </div>
         <div class="modal-body" id="tutorial-body"></div>
-        <div class="modal-footer-actions">
+        <div class="modal-footer">
             <button class="btn btn-primary" data-close="modal-tutorial">Mengerti</button>
         </div>
     </div>
+</div>
+
+<!-- Global Floating COA Dropdown Popover for Transaction Table -->
+<div class="coa-dropdown-fixed-menu hidden" id="global-coa-picker">
+    <div class="coa-dropdown-search-box">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input type="text" placeholder="Cari kode / nama COA..." class="coa-dropdown-search-input" id="search-global-coa-picker">
+    </div>
+    <div class="coa-dropdown-list" id="list-global-coa-picker"></div>
 </div>
 
 <!-- Toast container -->

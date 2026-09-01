@@ -1,0 +1,212 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 980" width="100%" height="980">
+  <defs>
+    <linearGradient id="plBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#080e1a" />
+      <stop offset="100%" stop-color="#040711" />
+    </linearGradient>
+    <linearGradient id="headerGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="rgba(19, 30, 49, 0.95)" />
+      <stop offset="100%" stop-color="rgba(11, 18, 32, 0.85)" />
+    </linearGradient>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000000" flood-opacity="0.4" />
+    </filter>
+  </defs>
+
+  <style>
+    .pl-font { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    .box-title { font-size: 13.5px; font-weight: 700; fill: #f8fafc; }
+    .box-sub { font-size: 11.5px; fill: #94a3b8; }
+    .route-text { font-size: 11.5px; font-weight: 600; fill: #ecfdf5; }
+    .badge-layer { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
+  </style>
+
+  <!-- Background Base -->
+  <rect width="840" height="980" rx="16" fill="url(#plBg)" stroke="#1e293b" stroke-width="1.5" />
+
+  <!-- Diagram Title Header -->
+  <g transform="translate(40, 28)">
+    <rect width="760" height="42" rx="8" fill="rgba(15, 23, 42, 0.8)" stroke="#1e293b" stroke-width="1" />
+    <circle cx="24" cy="21" r="5" fill="#10b981" />
+    <text x="38" y="26" class="pl-font" font-size="15" font-weight="800" fill="#f8fafc">ARSITEKTUR 5-LAYER HYBRID CLASSIFICATION PIPELINE</text>
+    <rect x="630" y="10" width="115" height="22" rx="4" fill="rgba(56, 189, 248, 0.15)" />
+    <text x="687" y="25" class="pl-font" font-size="10.5" font-weight="700" fill="#38bdf8" text-anchor="middle">DETERMINISTIK + AI</text>
+  </g>
+
+  <!-- INPUT NODE -->
+  <g transform="translate(190, 85)" filter="url(#shadow)">
+    <rect width="460" height="48" rx="8" fill="#0f172a" stroke="#38bdf8" stroke-width="1.5" />
+    <text x="230" y="22" class="pl-font" font-size="11" font-weight="700" fill="#38bdf8" text-anchor="middle" letter-spacing="1">BARIS MUTASI BANK MENTAH</text>
+    <text x="230" y="38" class="pl-font" font-size="12" fill="#e2e8f0" text-anchor="middle">Tanggal  |  Keterangan  |  Nama Pengirim  |  Nominal</text>
+  </g>
+
+  <!-- Connector to L0 -->
+  <line x1="420" y1="133" x2="420" y2="150" stroke="#38bdf8" stroke-width="2" />
+  <polygon points="416,150 420,156 424,150" fill="#38bdf8" />
+
+  <!-- LAYER 0 -->
+  <g transform="translate(140, 156)" filter="url(#shadow)">
+    <rect width="560" height="74" rx="10" fill="url(#cardGrad)" stroke="#334155" stroke-width="1.5" />
+    <rect x="14" y="12" width="70" height="20" rx="4" fill="rgba(56, 189, 248, 0.15)" />
+    <text x="49" y="26" class="pl-font badge-layer" fill="#38bdf8" text-anchor="middle">LAYER 0</text>
+    <text x="96" y="27" class="pl-font box-title">Text Sanitizer &amp; Profile Filter</text>
+    
+    <text x="14" y="47" class="pl-font box-sub">• Eliminasi noise format bank (BI-FAST, RTGS, QRIS, e-wallet DANA/OVO/GoPay)</text>
+    <text x="14" y="63" class="pl-font box-sub">• Saring variasi nama alias yayasan (mencegah false-positive) &amp; ekstrak nama pengirim</text>
+  </g>
+
+  <!-- Connector to L1 -->
+  <line x1="420" y1="230" x2="420" y2="248" stroke="#38bdf8" stroke-width="2" />
+  <polygon points="416,248 420,254 424,248" fill="#38bdf8" />
+
+  <!-- LAYER 1 -->
+  <g transform="translate(60, 254)" filter="url(#shadow)">
+    <rect width="440" height="82" rx="10" fill="url(#cardGrad)" stroke="#0284c7" stroke-width="1.5" />
+    <rect x="14" y="12" width="70" height="20" rx="4" fill="rgba(2, 132, 199, 0.2)" />
+    <text x="49" y="26" class="pl-font badge-layer" fill="#38bdf8" text-anchor="middle">LAYER 1</text>
+    <text x="96" y="27" class="pl-font box-title">Outflow / Expense Filter</text>
+    
+    <text x="14" y="48" class="pl-font box-sub">Cek: Apakah nominal &lt; 0 ATAU keterangan diawali "TRF KE" /</text>
+    <text x="14" y="64" class="pl-font box-sub">"Biaya Admin" / pengeluaran operasional?</text>
+  </g>
+
+  <!-- L1 Branch: Expense (Right) -->
+  <line x1="500" y1="295" x2="570" y2="295" stroke="#f43f5e" stroke-width="2" />
+  <polygon points="570,291 576,295 570,299" fill="#f43f5e" />
+  <text x="535" y="287" class="pl-font" font-size="10.5" font-weight="700" fill="#f43f5e" text-anchor="middle">YA</text>
+
+  <g transform="translate(576, 266)" filter="url(#shadow)">
+    <rect width="210" height="58" rx="8" fill="#3f0f1d" stroke="#f43f5e" stroke-width="1.5" />
+    <text x="12" y="23" class="pl-font" font-size="12.5" font-weight="800" fill="#ffe4e6">COA 60100008</text>
+    <text x="12" y="42" class="pl-font" font-size="11" fill="#fca5a5">Beban Operasional / Lainnya</text>
+  </g>
+
+  <!-- L1 Branch: Inflow (Down) -->
+  <line x1="280" y1="336" x2="280" y2="368" stroke="#10b981" stroke-width="2" />
+  <polygon points="276,368 280,374 284,368" fill="#10b981" />
+  <text x="295" y="356" class="pl-font" font-size="10.5" font-weight="700" fill="#10b981">TIDAK (Inflow)</text>
+
+  <!-- LAYER 2 -->
+  <g transform="translate(60, 374)" filter="url(#shadow)">
+    <rect width="440" height="82" rx="10" fill="url(#cardGrad)" stroke="#0284c7" stroke-width="1.5" />
+    <rect x="14" y="12" width="70" height="20" rx="4" fill="rgba(2, 132, 199, 0.2)" />
+    <text x="49" y="26" class="pl-font badge-layer" fill="#38bdf8" text-anchor="middle">LAYER 2</text>
+    <text x="96" y="27" class="pl-font box-title">Campaign Tail Code (Kode Ekor)</text>
+    
+    <text x="14" y="48" class="pl-font box-sub">Cek: Apakah 3 digit terakhir nominal cocok dengan kode unik</text>
+    <text x="14" y="64" class="pl-font box-sub">program kampanye? (Contoh: Rp 50.024 &#8594; Ekor 024)</text>
+  </g>
+
+  <!-- L2 Branch: Match (Right) -->
+  <line x1="500" y1="415" x2="570" y2="415" stroke="#10b981" stroke-width="2" />
+  <polygon points="570,411 576,415 570,419" fill="#10b981" />
+  <text x="535" y="407" class="pl-font" font-size="10.5" font-weight="700" fill="#10b981" text-anchor="middle">COCOK</text>
+
+  <g transform="translate(576, 386)" filter="url(#shadow)">
+    <rect width="210" height="58" rx="8" fill="#063223" stroke="#10b981" stroke-width="1.5" />
+    <text x="12" y="23" class="pl-font" font-size="12.5" font-weight="800" fill="#a7f3d0">COA Kampanye Terkait</text>
+    <text x="12" y="42" class="pl-font" font-size="11" fill="#6ee7b7">Tingkat Akurasi ~95%</text>
+  </g>
+
+  <!-- L2 Branch: No Match (Down) -->
+  <line x1="280" y1="456" x2="280" y2="488" stroke="#38bdf8" stroke-width="2" />
+  <polygon points="276,488 280,494 284,488" fill="#38bdf8" />
+  <text x="295" y="476" class="pl-font" font-size="10.5" font-weight="700" fill="#64748b">TIDAK COCOK</text>
+
+  <!-- LAYER 3 -->
+  <g transform="translate(60, 494)" filter="url(#shadow)">
+    <rect width="440" height="82" rx="10" fill="url(#cardGrad)" stroke="#0284c7" stroke-width="1.5" />
+    <rect x="14" y="12" width="70" height="20" rx="4" fill="rgba(2, 132, 199, 0.2)" />
+    <text x="49" y="26" class="pl-font badge-layer" fill="#38bdf8" text-anchor="middle">LAYER 3</text>
+    <text x="96" y="27" class="pl-font box-title">Registered Donor Matching</text>
+    
+    <text x="14" y="48" class="pl-font box-sub">Cek: Apakah nama pengirim terdaftar di database donatur</text>
+    <text x="14" y="64" class="pl-font box-sub">tetap lembaga amil?</text>
+  </g>
+
+  <!-- L3 Branch: Match (Right) -->
+  <line x1="500" y1="535" x2="570" y2="535" stroke="#10b981" stroke-width="2" />
+  <polygon points="570,531 576,535 570,539" fill="#10b981" />
+  <text x="535" y="527" class="pl-font" font-size="10.5" font-weight="700" fill="#10b981" text-anchor="middle">COCOK</text>
+
+  <g transform="translate(576, 506)" filter="url(#shadow)">
+    <rect width="210" height="58" rx="8" fill="#063223" stroke="#10b981" stroke-width="1.5" />
+    <text x="12" y="23" class="pl-font" font-size="12" font-weight="800" fill="#a7f3d0">Program Rutin Donatur</text>
+    <text x="12" y="42" class="pl-font" font-size="11" fill="#6ee7b7">Atau Default COA 40201001</text>
+  </g>
+
+  <!-- L3 Branch: No Match (Down) -->
+  <line x1="280" y1="576" x2="280" y2="608" stroke="#38bdf8" stroke-width="2" />
+  <polygon points="276,608 280,614 284,608" fill="#38bdf8" />
+  <text x="295" y="596" class="pl-font" font-size="10.5" font-weight="700" fill="#64748b">TIDAK COCOK</text>
+
+  <!-- LAYER 4 -->
+  <g transform="translate(60, 614)" filter="url(#shadow)">
+    <rect width="440" height="82" rx="10" fill="url(#cardGrad)" stroke="#0284c7" stroke-width="1.5" />
+    <rect x="14" y="12" width="70" height="20" rx="4" fill="rgba(2, 132, 199, 0.2)" />
+    <text x="49" y="26" class="pl-font badge-layer" fill="#38bdf8" text-anchor="middle">LAYER 4</text>
+    <text x="96" y="27" class="pl-font box-title">Keyword &amp; Alias Dictionary</text>
+    
+    <text x="14" y="48" class="pl-font box-sub">Cek: Apakah terdapat kata kunci program syariah? (zakat maal,</text>
+    <text x="14" y="64" class="pl-font box-sub">fidyah, wakaf sumur, beasiswa, sedekah subuh, dll.)</text>
+  </g>
+
+  <!-- L4 Branch: Match (Right) -->
+  <line x1="500" y1="655" x2="570" y2="655" stroke="#10b981" stroke-width="2" />
+  <polygon points="570,651 576,655 570,659" fill="#10b981" />
+  <text x="535" y="647" class="pl-font" font-size="10.5" font-weight="700" fill="#10b981" text-anchor="middle">COCOK</text>
+
+  <g transform="translate(576, 626)" filter="url(#shadow)">
+    <rect width="210" height="58" rx="8" fill="#063223" stroke="#10b981" stroke-width="1.5" />
+    <text x="12" y="23" class="pl-font" font-size="12.5" font-weight="800" fill="#a7f3d0">COA Program Terkait</text>
+    <text x="12" y="42" class="pl-font" font-size="11" fill="#6ee7b7">Tingkat Akurasi ~90%</text>
+  </g>
+
+  <!-- L4 Branch: No Match (Down) -->
+  <line x1="280" y1="696" x2="280" y2="728" stroke="#a78bfa" stroke-width="2" />
+  <polygon points="276,728 280,734 284,728" fill="#a78bfa" />
+  <text x="295" y="716" class="pl-font" font-size="10.5" font-weight="700" fill="#a78bfa">TANPA KATA KUNCI</text>
+
+  <!-- LAYER 5 -->
+  <g transform="translate(60, 734)" filter="url(#shadow)">
+    <rect width="440" height="88" rx="10" fill="url(#cardGrad)" stroke="#8b5cf6" stroke-width="1.5" />
+    <rect x="14" y="12" width="70" height="20" rx="4" fill="rgba(139, 92, 246, 0.2)" />
+    <text x="49" y="26" class="pl-font badge-layer" fill="#a78bfa" text-anchor="middle">LAYER 5</text>
+    <text x="96" y="27" class="pl-font box-title">AI Semantic Matcher (Opsional)</text>
+    
+    <text x="14" y="48" class="pl-font box-sub">Evaluasi Semantik (Ollama / Gemini / OpenAI / OpenRouter)</text>
+    <text x="14" y="64" class="pl-font box-sub">Apakah skor keyakinan &#8805; Threshold Keyakinan (Default 0.70)?</text>
+  </g>
+
+  <!-- L5 Branch: AI Accepted (Right) -->
+  <line x1="500" y1="778" x2="570" y2="778" stroke="#10b981" stroke-width="2" />
+  <polygon points="570,774 576,778 570,782" fill="#10b981" />
+  <text x="535" y="770" class="pl-font" font-size="10.5" font-weight="700" fill="#10b981" text-anchor="middle">&#8805; 0.70</text>
+
+  <g transform="translate(576, 749)" filter="url(#shadow)">
+    <rect width="210" height="58" rx="8" fill="#063223" stroke="#10b981" stroke-width="1.5" />
+    <text x="12" y="23" class="pl-font" font-size="12.5" font-weight="800" fill="#a7f3d0">COA Rekomendasi AI</text>
+    <text x="12" y="42" class="pl-font" font-size="11" fill="#6ee7b7">Disertai Skor Keyakinan &amp; Rationale</text>
+  </g>
+
+  <!-- L5 Branch: AI Rejected / Fallback (Down) -->
+  <line x1="280" y1="822" x2="280" y2="856" stroke="#f59e0b" stroke-width="2" />
+  <polygon points="276,856 280,862 284,856" fill="#f59e0b" />
+  <text x="295" y="844" class="pl-font" font-size="10.5" font-weight="700" fill="#f59e0b">&lt; 0.70 / Nonaktif</text>
+
+  <!-- KARANTINA SYARIAH / UNAUTHORIZED (FINAL SAFEGUARD) -->
+  <g transform="translate(110, 862)" filter="url(#shadow)">
+    <rect width="620" height="88" rx="12" fill="#3b2106" stroke="#f59e0b" stroke-width="2" />
+    <rect x="20" y="16" width="36" height="36" rx="8" fill="rgba(245, 158, 11, 0.2)" />
+    <!-- Alert Icon -->
+    <path d="M38 25 L49 43 H27 Z M38 33 V36 M38 39 V40" stroke="#f59e0b" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+    
+    <text x="68" y="32" class="pl-font" font-size="14.5" font-weight="800" fill="#fef3c7">COA 40201000 — Penerimaan Belum Terotorisasi (Unauthorized)</text>
+    <text x="68" y="52" class="pl-font" font-size="12" fill="#fde68a">SAFEGUARD SYARIAH MUTLAK: Dana tanpa kepastian niat wajib dikarantina.</text>
+    <text x="68" y="70" class="pl-font" font-size="11.5" fill="#fde68a">Hanya dapat dialokasikan kembali setelah verifikasi resmi / persetujuan Kadiv.</text>
+  </g>
+</svg>

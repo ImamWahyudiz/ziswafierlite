@@ -224,12 +224,22 @@ export function getFilteredSorted() {
   let result = getRowsByPeriod();
 
   if (filterCategory !== 'ALL') {
-    if (filterCategory === 'UNAUTHORIZED') {
+    if (filterCategory === 'UNAUTHORIZED' || filterCategory === 'UNAUTHORIZED_FALLBACK') {
       result = result.filter(r => Number(r.assignedCoa) === 40201000 || String(r.assignedCoa) === '40201000' || r.matchedLayer === 'UNAUTHORIZED_FALLBACK');
     } else if (filterCategory === 'EXPENSE') {
-      result = result.filter(r => r.isExpense || Number(r.assignedCoa) === 60100008 || String(r.assignedCoa) === '60100008');
+      result = result.filter(r => r.isExpense || Number(r.assignedCoa) === 60100008 || String(r.assignedCoa) === '60100008' || r.matchedLayer === 'EXPENSE');
     } else if (filterCategory === 'MANUAL_OVERRIDE') {
-      result = result.filter(r => r.matchedLayer === 'MANUAL_OVERRIDE');
+      result = result.filter(r => r.matchedLayer === 'MANUAL_OVERRIDE' || r.isOverridden);
+    } else if (filterCategory === 'KEYWORD') {
+      result = result.filter(r => r.matchedLayer === 'KEYWORD');
+    } else if (filterCategory === 'DONATUR_TETAP') {
+      result = result.filter(r => r.matchedLayer === 'DONATUR_TETAP');
+    } else if (filterCategory === 'CAMPAIGN_TAIL') {
+      result = result.filter(r => r.matchedLayer === 'CAMPAIGN_TAIL');
+    } else if (filterCategory === 'ORG_ALIAS') {
+      result = result.filter(r => r.matchedLayer === 'ORG_ALIAS');
+    } else if (filterCategory === 'AI_SEMANTIC') {
+      result = result.filter(r => r.matchedLayer === 'AI_SEMANTIC');
     }
   }
 

@@ -465,6 +465,8 @@ export function importMasterFromExcel(workbook, mode = 'merge', targetEntity = n
           coaCode: coaNum,
           tailCode: tailStr,
           keywords: keywordsArr,
+          hiddenKeywords: [],
+          parentCoaCode: sanitizeCoaCode(row["PARENT COA"]) || sanitizeCoaCode(row["PARENT_COA"]) || sanitizeCoaCode(row["INDUK"]) || null,
           description: descStr
         });
       } else if (rawId || rawName) {
@@ -623,13 +625,17 @@ export function addProgram(entry) {
   const coaCode = sanitizeCoaCode(entry?.coaCode) || 0;
   const tailCode = sanitizeInputText(entry?.tailCode, 10);
   const description = sanitizeInputText(entry?.description, 500);
-  const keywords = Array.isArray(entry?.keywords) 
+  const keywords = Array.isArray(entry?.keywords)
     ? entry.keywords.map(k => sanitizeInputText(k, 50)).filter(Boolean)
     : String(entry?.keywords || '').split(/[;,]/).map(k => sanitizeInputText(k, 50)).filter(Boolean);
+  const parentCoaCode = sanitizeCoaCode(entry?.parentCoaCode) || null;
+  const hiddenKeywords = Array.isArray(entry?.hiddenKeywords)
+    ? entry.hiddenKeywords.map(k => sanitizeInputText(k, 50)).filter(Boolean)
+    : [];
 
   if (!id || !name) throw new Error('ID dan Nama Program wajib diisi dengan format valid');
   if (state.programs.some(p => p.id === id)) throw new Error(`ID Program '${id}' sudah ada`);
-  state.programs = [...state.programs, { id, name, coaCode, tailCode, keywords, description }];
+  state.programs = [...state.programs, { id, name, coaCode, tailCode, keywords, description, parentCoaCode, hiddenKeywords }];
   persist(); notify();
 }
 
@@ -639,13 +645,21 @@ export function updateProgram(idx, entry) {
   const coaCode = sanitizeCoaCode(entry?.coaCode) || 0;
   const tailCode = sanitizeInputText(entry?.tailCode, 10);
   const description = sanitizeInputText(entry?.description, 500);
-  const keywords = Array.isArray(entry?.keywords) 
+  const keywords = Array.isArray(entry?.keywords)
     ? entry.keywords.map(k => sanitizeInputText(k, 50)).filter(Boolean)
     : String(entry?.keywords || '').split(/[;,]/).map(k => sanitizeInputText(k, 50)).filter(Boolean);
+  const parentCoaCode = entry?.parentCoaCode !== undefined ? sanitizeCoaCode(entry?.parentCoaCode) || null : undefined;
+  // Preserve existing hiddenKeywords if not provided in entry
+  const existingProgram = state.programs.find(p => p.id === entry?.id);
+  const hiddenKeywords = entry?.hiddenKeywords !== undefined
+    ? Array.isArray(entry?.hiddenKeywords)
+      ? entry.hiddenKeywords.map(k => sanitizeInputText(k, 50)).filter(Boolean)
+      : []
+    : (existingProgram ? existingProgram.hiddenKeywords : []);
 
   if (!id || !name) throw new Error('ID dan Nama Program wajib diisi');
   if (state.programs.some((p, i) => i !== idx && p.id === id)) throw new Error(`ID Program '${id}' sudah digunakan`);
-  state.programs = state.programs.map((p, i) => i === idx ? { id, name, coaCode, tailCode, keywords, description } : p);
+  state.programs = state.programs.map((p, i) => i === idx ? { id, name, coaCode, tailCode, keywords, description, parentCoaCode, hiddenKeywords } : p);
   persist(); notify();
 }
 
@@ -785,6 +799,8 @@ export function importConfigFromJson(jsonStr, mode = 'replace') {
         coaCode: sanitizeCoaCode(p.coaCode) || 0,
         tailCode: sanitizeInputText(p.tailCode, 10),
         keywords: Array.isArray(p.keywords) ? p.keywords.map(k => sanitizeInputText(k, 50)).filter(Boolean) : [],
+        parentCoaCode: sanitizeCoaCode(p.parentCoaCode) || null,
+        hiddenKeywords: Array.isArray(p.hiddenKeywords) ? p.hiddenKeywords.map(k => sanitizeInputText(k, 50)).filter(Boolean) : [],
         description: sanitizeInputText(p.description, 500)
       })).filter(p => p.id && p.name);
     }
@@ -824,8 +840,9 @@ export function importConfigFromJson(jsonStr, mode = 'replace') {
         const coaCode = sanitizeCoaCode(p.coaCode) || 0;
         const tailCode = sanitizeInputText(p.tailCode, 10);
         const keywords = Array.isArray(p.keywords) ? p.keywords.map(k => sanitizeInputText(k, 50)).filter(Boolean) : [];
-        const description = sanitizeInputText(p.description, 500);
-        if (id && name) progMap.set(id, { id, name, coaCode, tailCode, keywords, description });
+        const parentCoaCode = sanitizeCoaCode(p.parentCoaCode) || null;
+        const hiddenKeywords = Array.isArray(p.hiddenKeywords) ? p.hiddenKeywords.map(k => sanitizeInputText(k, 50)).filter(Boolean) : [];
+        if (id && name) progMap.set(id, { id, name, coaCode, tailCode, keywords, parentCoaCode, hiddenKeywords, description: sanitizeInputText(p.description, 500) });
       });
       state.programs = Array.from(progMap.values());
     }

@@ -69,6 +69,7 @@ coverage.xml
 
 # Local Temporary & Sample Data
 sample/
+test_data/
 temp/
 tmp/
 *.tmp

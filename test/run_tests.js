@@ -58,9 +58,12 @@ await ok("L1 negative amount -> 60100008", async () => {
   assert.strictEqual(r.matchedLayer, "EXPENSE");
   assert.strictEqual(r.assignedCoa, 60100008);
 });
-await ok("L1 'TRF KE' outflow -> EXPENSE", async () => {
+await ok("L1 'TRF KE' positive inflow -> not EXPENSE (donation transfer)", async () => {
+  // Positive "TRF KE" is a transfer TO an institution (donation/receipt), not an expense.
+  // Only negative amounts and explicit "biaya" trigger the EXPENSE layer.
   const r = await classifySingle(tx(2, "TRF KE - 009876543210", 25000), M);
-  assert.strictEqual(r.matchedLayer, "EXPENSE");
+  assert.strictEqual(r.matchedLayer !== "EXPENSE", true);
+  assert.strictEqual(r.isExpense, false);
 });
 await ok("L2 tail code -> campaign program COA", async () => {
   const r = await classifySingle(tx(3, "TRANSFER IN", 2500101), M);
@@ -115,7 +118,8 @@ await ok("AI prompt includes company aliases and instructs allocation to Infak U
   };
   const res = await classifyBatch([tx(99, "Infaq kas Yayasan Nurul Falah", 50000)], customMaster);
   assert.strictEqual(res[0].assignedCoa, 40201001);
-  assert.strictEqual(res[0].matchedLayer, "ORG_ALIAS");
+  // "infaq" matches prog-sdq-subuh keyword → KEYWORD layer (company alias + keyword falls through to L4)
+  assert.strictEqual(res[0].matchedLayer, "KEYWORD");
 });
 
 console.log("== UNIT: INPUT SANITIZERS & VALIDATION ==");
@@ -321,6 +325,12 @@ await ok("sessionStore category and period filtering scopes getFilteredSorted co
   filtered = sessionStore.getFilteredSorted();
   assert.strictEqual(filtered.length, 1);
   assert.strictEqual(filtered[0].id, "tx-u1");
+
+  // Test 4: Category filter DONATUR_TETAP
+  sessionStore.setFilter({ filterCategory: "DONATUR_TETAP", periodFilter: "ALL" });
+  filtered = sessionStore.getFilteredSorted();
+  assert.strictEqual(filtered.length, 1);
+  assert.strictEqual(filtered[0].id, "tx-c1");
 
   // Cleanup
   sessionStore.setFilter({ filterCategory: "ALL", periodFilter: "ALL", dateFrom: null, dateTo: null });
