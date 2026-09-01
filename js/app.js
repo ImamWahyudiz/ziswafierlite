@@ -8,7 +8,7 @@ import {
 } from "./store/master_store.js";
 import { sanitizeInputText, sanitizeSlug, sanitizePhone, sanitizeCoaCode } from "./engine/sanitizer.js";
 import { classifyBatch } from "./engine/classifier.js";
-import { testAIConnection } from "./engine/ai_matcher.js";
+import { testAIConnection, clearAiCache } from "./engine/ai_matcher.js";
 import { parseBankStatement, exportOdooExcel, exportOdooCsv } from "./services/excel_adapter.js";
 import {
   getRows, getRowCount, setRows, mergeRows, updateRow, bulkUpdateRows, bulkPatchRows, deleteRows, restoreRows, clearRows,
@@ -2562,16 +2562,23 @@ async function execute5LayerRescan(targetIds = null) {
   const sys = getSystemCodes(master);
   const activeFiltered = getFilteredSorted();
 
+  // Guardrail: Rescan must ONLY target transactions that are currently Unauthorized
+  // and must NEVER touch manually overridden transactions (isOverridden: true)
+  const isEligibleUnauthorized = (r) => {
+    if (r.isOverridden || r.matchedLayer === 'MANUAL_OVERRIDE') return false;
+    return Number(r.assignedCoa) === Number(sys.unauth) || r.matchedLayer === 'UNAUTHORIZED_FALLBACK';
+  };
+
   let targetRows = [];
   if (targetIds && targetIds.length > 0) {
-    targetRows = getRows().filter(r => targetIds.includes(r.id));
+    targetRows = getRows().filter(r => targetIds.includes(r.id) && isEligibleUnauthorized(r));
   } else {
-    // Scan all currently filtered rows in Unauthorized
-    targetRows = activeFiltered.filter(r => r.assignedCoa === sys.unauth || r.matchedLayer === 'UNAUTHORIZED_FALLBACK');
+    // Scan all currently filtered rows that are eligible Unauthorized
+    targetRows = activeFiltered.filter(isEligibleUnauthorized);
   }
 
   if (!targetRows.length) {
-    showToast('Tidak ada transaksi Unauthorized untuk dipindai ulang.', 'info');
+    showToast('Hanya transaksi berstatus Unauthorized yang belum diedit manual yang dapat dipindai ulang.', 'info');
     return;
   }
 
@@ -2607,6 +2614,9 @@ async function execute5LayerRescan(targetIds = null) {
   }
 
   try {
+    // Clear AI cache so newly added programs, keywords, or aliases in Master Data take immediate effect
+    clearAiCache();
+
     // Snapshot for Undo before rescanning
     const snapshotIds = targetRows.map(r => r.id);
     const snapshotPatches = targetRows.map(r => ({ ...r }));
@@ -2634,13 +2644,14 @@ async function execute5LayerRescan(targetIds = null) {
     let promotedCount = 0;
 
     newlyClassified.forEach(item => {
-      const isStillUnauth = item.assignedCoa === sys.unauth || item.matchedLayer === 'UNAUTHORIZED_FALLBACK';
+      const isStillUnauth = Number(item.assignedCoa) === Number(sys.unauth) || item.matchedLayer === 'UNAUTHORIZED_FALLBACK';
       if (!isStillUnauth) {
         promotedCount++;
       }
       patchMap.set(item.id, {
         assignedCoa: item.assignedCoa,
         assignedCoaName: item.assignedCoaName,
+        newName: item.assignedCoaName,
         assignedProgramId: item.assignedProgramId,
         matchedLayer: item.matchedLayer,
         confidence: item.confidence,

@@ -107,7 +107,7 @@ INSTRUKSI:
 1. Cocok program spesifik: Beri id_program, no_akun program, confidence 0.85-1.0.
 2. Nama pengirim cocok Donatur Tetap di atas: Gunakan program default donatur (atau Infak Umum jika kosong), confidence 0.90.
 3. Donasi umum / sebut alias lembaga (ada kata donasi/sedekah/infaq/sumbangan tanpa program khusus): Alokasikan ke Infak Umum (id_program: null, no_akun: ${baselineCoa}, confidence: 0.90).
-4. Mutasi buta / tanpa kata donasi dan tidak dikenal: Karantina ke Unauthorized (id_program: null, no_akun: ${unauthCoa}, confidence: 0.0).
+4. Mutasi buta / tanpa kata donasi dan tidak dikenal (misal hanya nama pengirim, nomor rekening, atau kode transfer bank): DILARANG MENEBAK program! WAJIB Karantina ke Unauthorized (id_program: null, no_akun: ${unauthCoa}, confidence: 0.0).
 5. Output HANYA JSON array murni tanpa markdown, format:
 [
   {"idx": 1, "id_program": "<id_atau_null>", "no_akun": <number>, "confidence": <float_0_1>, "reason": "<maks_10_kata>"}
@@ -190,7 +190,7 @@ export async function callOllama(prompt, settings) {
       prompt: prompt,
       stream: false,
       format: 'json',
-      options: { temperature: 0.1, top_p: 0.9 }
+      options: { temperature: 0.0, top_p: 0.9 }
     })
   }, REQUEST_TIMEOUT_MS);
 
@@ -226,7 +226,7 @@ export async function callGemini(prompt, settings) {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           responseMimeType: 'application/json',
-          temperature: 0.1
+          temperature: 0.0
         }
       };
 
@@ -297,7 +297,7 @@ export async function callOpenAICompatible(prompt, settings) {
       { role: 'system', content: 'You are a financial classification assistant for Indonesian ZISWAF funds. Always respond with pure JSON array.' },
       { role: 'user', content: prompt }
     ],
-    temperature: 0.1
+    temperature: 0.0
   };
 
   const response = await fetchWithTimeout(endpoint, {

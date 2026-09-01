@@ -388,6 +388,109 @@ await ok("sessionStore bulkPatchRows and 5-layer rescan workflow", async () => {
   store.resetToDefaults();
 });
 
+await ok("5-layer rescan guardrail protects manual overrides and already valid rows", async () => {
+  store.resetToDefaults();
+  const sys = store.getSystemCodes();
+
+  const testRows = [
+    {
+      id: "tx-manual",
+      rawDate: "2026-08-01",
+      transactionDate: "2026-08-01",
+      rawLabel: "TRF DARI AHMAD KEBUMEN",
+      rawAmount: 100000,
+      assignedCoa: 40201001,
+      assignedCoaName: "Penerimaan Infak & Sedekah - Umum",
+      newName: "Penerimaan Infak & Sedekah - Umum",
+      matchedLayer: "MANUAL_OVERRIDE",
+      isOverridden: true
+    },
+    {
+      id: "tx-valid-keyword",
+      rawDate: "2026-08-02",
+      transactionDate: "2026-08-02",
+      rawLabel: "Bantuan Beras Santri Gizi",
+      rawAmount: 250000,
+      assignedCoa: 40202302,
+      assignedCoaName: "Bantuan Gizi Santri & Pangan Dhuafa",
+      newName: "Bantuan Gizi Santri & Pangan Dhuafa",
+      matchedLayer: "KEYWORD",
+      isOverridden: false
+    },
+    {
+      id: "tx-unauth-eligible",
+      rawDate: "2026-08-03",
+      transactionDate: "2026-08-03",
+      rawLabel: "TRF DARI H FULAN UNTUK PALESTINA PEDULI",
+      rawAmount: 300000,
+      assignedCoa: sys.unauth,
+      assignedCoaName: "Penerimaan Infak & Sedekah - Unauthorized",
+      newName: "Penerimaan Infak & Sedekah - Unauthorized",
+      matchedLayer: "UNAUTHORIZED_FALLBACK",
+      isOverridden: false
+    }
+  ];
+
+  sessionStore.setRows(testRows);
+
+  // Guardrail logic matching execute5LayerRescan:
+  const isEligibleUnauthorized = (r) => {
+    if (r.isOverridden || r.matchedLayer === 'MANUAL_OVERRIDE') return false;
+    return Number(r.assignedCoa) === Number(sys.unauth) || r.matchedLayer === 'UNAUTHORIZED_FALLBACK';
+  };
+
+  // When all 3 row IDs are selected:
+  const allIds = testRows.map(r => r.id);
+  const eligibleRows = sessionStore.getRows().filter(r => allIds.includes(r.id) && isEligibleUnauthorized(r));
+
+  // Only tx-unauth-eligible should be scanned!
+  assert.strictEqual(eligibleRows.length, 1);
+  assert.strictEqual(eligibleRows[0].id, "tx-unauth-eligible");
+
+  // Manual override and valid keyword row are immune
+  assert.strictEqual(eligibleRows.some(r => r.id === "tx-manual"), false);
+  assert.strictEqual(eligibleRows.some(r => r.id === "tx-valid-keyword"), false);
+
+  // Rescan eligible rows
+  const currentMaster = store.getMaster();
+  const rescanned = await classifyBatch(eligibleRows, currentMaster);
+  assert.strictEqual(rescanned.length, 1);
+  assert.strictEqual(rescanned[0].id, "tx-unauth-eligible");
+  // "palestina" keyword matches Tanggap Bencana & Kemanusiaan (40202101)
+  assert.strictEqual(rescanned[0].assignedCoa, 40202101);
+  assert.strictEqual(rescanned[0].matchedLayer, "KEYWORD");
+
+  // Apply patch including newName
+  const patchMap = new Map();
+  patchMap.set(rescanned[0].id, {
+    assignedCoa: rescanned[0].assignedCoa,
+    assignedCoaName: rescanned[0].assignedCoaName,
+    newName: rescanned[0].assignedCoaName,
+    assignedProgramId: rescanned[0].assignedProgramId,
+    matchedLayer: rescanned[0].matchedLayer,
+    confidence: rescanned[0].confidence,
+    reasoning: rescanned[0].reasoning,
+    isExpense: rescanned[0].isExpense,
+    isOverridden: false
+  });
+  sessionStore.bulkPatchRows(patchMap);
+
+  const finalRows = sessionStore.getRows();
+  const manualRow = finalRows.find(r => r.id === "tx-manual");
+  const keywordRow = finalRows.find(r => r.id === "tx-valid-keyword");
+  const promotedRow = finalRows.find(r => r.id === "tx-unauth-eligible");
+
+  assert.strictEqual(manualRow.matchedLayer, "MANUAL_OVERRIDE");
+  assert.strictEqual(manualRow.isOverridden, true);
+  assert.strictEqual(keywordRow.assignedCoa, 40202302);
+  assert.strictEqual(promotedRow.assignedCoa, 40202101);
+  assert.strictEqual(promotedRow.newName, "Infak Kebencanaan & Kemanusiaan");
+
+  sessionStore.clearRows();
+  store.resetToDefaults();
+});
+
+
 console.log("== E2E PARITY: sample/inputt.xlsx vs sample/output.xlsx ==");
 let parityPct = -1;
 try {
