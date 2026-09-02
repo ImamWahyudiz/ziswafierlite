@@ -17,7 +17,7 @@ const ROOT = "C:/Users/Wahyu/Documents/Project/ziswafierlite/test_data";
 const master = JSON.parse(readFileSync(`${ROOT}/ziswaf-config.json`, "utf8"));
 // AI ON for full pipeline
 master.settings.aiMode = "GEMINI";
-master.settings.aiApiKey = "AQ.Ab8RN6In3HR1esjhTHh2PRBy2Tyzg7eGQ0xpoIBpq2y2GxcEhw";
+master.settings.aiApiKey = "REDACTED";
 
 function loadXlsx(path) {
   const wb = XLSX.read(new Uint8Array(readFileSync(path)), { type: "array" });
