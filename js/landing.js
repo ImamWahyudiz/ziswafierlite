@@ -34,7 +34,8 @@ function applyTheme(theme) {
 }
 
 function initTheme() {
-    const saved = localStorage.getItem('ziswaf_theme');
+    let saved = null;
+    try { saved = localStorage.getItem('ziswaf_theme'); } catch {}
     const current = saved || document.documentElement.getAttribute('data-theme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
     applyTheme(current);
 
@@ -200,4 +201,3 @@ document.addEventListener('DOMContentLoaded', () => {
     initEditionToggle();
     initContactForm();
 });
-

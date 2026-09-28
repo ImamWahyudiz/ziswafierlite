@@ -2,6 +2,8 @@ import { DEFAULT_MASTER_DATA } from "../config/default_presets.js";
 import { sanitizeInputText, sanitizeSlug, sanitizePhone, sanitizeCoaCode } from "../engine/sanitizer.js";
 
 const STORAGE_KEY = "ziswaf_demo_master_v1";
+const BACKUP_STORAGE_KEY = "ziswaf_last_config_backup_v1";
+export const CURRENT_SCHEMA_VERSION = 2;
 
 const storage = (() => {
   try {
@@ -23,7 +25,7 @@ const memoryStorage = {
   }
 };
 
-const storageAccessor = storage || memoryStorage;
+let storageAccessor = storage || memoryStorage;
 
 function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
@@ -39,13 +41,193 @@ function deepMerge(target, source) {
   return result;
 }
 
+function cleanStringList(value, max = 50) {
+  const values = Array.isArray(value) ? value : String(value || '').split(/[;,]/);
+  return [...new Set(values.map(item => sanitizeInputText(item, max)).filter(Boolean))];
+}
+
+function normalizeCoa(entry) {
+  return {
+    ...entry,
+    code: sanitizeCoaCode(entry?.code),
+    name: sanitizeInputText(entry?.name, 120),
+    category: sanitizeInputText(entry?.category, 50) || 'UMUM'
+  };
+}
+
+function normalizeProgram(entry) {
+  return {
+    ...entry,
+    id: sanitizeSlug(entry?.id, 50),
+    name: sanitizeInputText(entry?.name, 120),
+    coaCode: sanitizeCoaCode(entry?.coaCode),
+    tailCode: sanitizeInputText(entry?.tailCode, 10),
+    parentCoaCode: sanitizeCoaCode(entry?.parentCoaCode) || null,
+    keywords: cleanStringList(entry?.keywords),
+    hiddenKeywords: cleanStringList(entry?.hiddenKeywords),
+    description: sanitizeInputText(entry?.description, 500),
+    ...(entry?.priority !== undefined ? { priority: Number(entry.priority) || 0 } : {})
+  };
+}
+
+function normalizeDonor(entry, fallbackCoa) {
+  return {
+    ...entry,
+    id: sanitizeSlug(entry?.id, 80) || `donor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: sanitizeInputText(entry?.name, 100),
+    phone: sanitizePhone(entry?.phone, 25),
+    defaultProgramId: sanitizeSlug(entry?.defaultProgramId, 50),
+    defaultCoa: sanitizeCoaCode(entry?.defaultCoa) || fallbackCoa
+  };
+}
+
+function normalizeSettings(value = {}) {
+  const defaults = DEFAULT_MASTER_DATA.settings;
+  const merged = { ...defaults, ...value };
+  const legacyModes = { GOOGLE_GEMINI: 'GEMINI', OLLAMA: 'LOCAL_OLLAMA', DISABLED: 'OFF' };
+  const requestedMode = legacyModes[String(merged.aiMode || '').toUpperCase()] || String(merged.aiMode || '').toUpperCase();
+  const aiMode = ['OFF', 'GEMINI', 'OPENAI', 'LOCAL_OLLAMA'].includes(requestedMode) ? requestedMode : 'OFF';
+  const threshold = Number(merged.confidenceThreshold);
+  return {
+    ...merged,
+    defaultUnauthorizedCoa: sanitizeCoaCode(merged.defaultUnauthorizedCoa) || defaults.defaultUnauthorizedCoa,
+    defaultBaselineCoa: sanitizeCoaCode(merged.defaultBaselineCoa) || defaults.defaultBaselineCoa,
+    expenseCoa: sanitizeCoaCode(merged.expenseCoa) || defaults.expenseCoa,
+    aiMode,
+    aiModelName: sanitizeInputText(merged.aiModelName, 80),
+    confidenceThreshold: Math.min(1, Math.max(0.80, Number.isFinite(threshold) ? threshold : defaults.confidenceThreshold)),
+    aiApiKey: typeof merged.aiApiKey === 'string' ? merged.aiApiKey : ''
+  };
+}
+
+function ensureSystemCoas(master) {
+  const settings = master.settings;
+  const required = [
+    [settings.defaultUnauthorizedCoa, settings.defaultUnauthorizedName || 'Penerimaan Infak & Sedekah - Perlu Ditinjau', 'INFAK / SEDEKAH'],
+    [settings.defaultBaselineCoa, settings.defaultBaselineName || 'Penerimaan Infak & Sedekah - Umum', 'INFAK / SEDEKAH'],
+    [settings.expenseCoa, settings.expenseName || 'Beban Lain-Lain (Pengeluaran Bank)', 'BEBAN']
+  ];
+  for (const [code, name, category] of required) {
+    if (!master.coaList.some(coa => coa.code === code)) master.coaList.push({ code, name, category });
+  }
+  master.coaList.sort((a, b) => a.code - b.code);
+}
+
+export function validateMasterData(candidate) {
+  const errors = [];
+  const coaCodes = new Set();
+  for (const coa of candidate.coaList || []) {
+    if (!coa.code || !coa.name) errors.push('Setiap COA wajib memiliki kode dan nama.');
+    if (coaCodes.has(coa.code)) errors.push(`Kode COA ${coa.code} duplikat.`);
+    coaCodes.add(coa.code);
+  }
+  const programIds = new Set();
+  const tailCodes = new Set();
+  for (const program of candidate.programs || []) {
+    if (!program.id || !program.name) errors.push('Setiap program wajib memiliki ID dan nama.');
+    if (programIds.has(program.id)) errors.push(`ID Program '${program.id}' duplikat.`);
+    programIds.add(program.id);
+    if (program.tailCode) {
+      if (tailCodes.has(program.tailCode)) errors.push(`Kode ekor '${program.tailCode}' dipakai lebih dari satu program.`);
+      tailCodes.add(program.tailCode);
+    }
+    if (!coaCodes.has(program.coaCode)) errors.push(`Program '${program.id}' merujuk COA ${program.coaCode || '(kosong)'} yang tidak ada.`);
+    if (program.parentCoaCode && !coaCodes.has(program.parentCoaCode)) errors.push(`Induk COA program '${program.id}' tidak ada.`);
+  }
+  const donorIds = new Set();
+  for (const donor of candidate.donors || []) {
+    if (!donor.id || !donor.name) errors.push('Setiap donatur wajib memiliki ID dan nama.');
+    if (donorIds.has(donor.id)) errors.push(`ID Donatur '${donor.id}' duplikat.`);
+    donorIds.add(donor.id);
+    if (donor.defaultProgramId && !programIds.has(donor.defaultProgramId)) errors.push(`Donatur '${donor.name}' merujuk program yang tidak ada.`);
+    if (!coaCodes.has(donor.defaultCoa)) errors.push(`Donatur '${donor.name}' merujuk COA ${donor.defaultCoa} yang tidak ada.`);
+  }
+  const settings = candidate.settings || {};
+  for (const [label, code] of [['karantina', settings.defaultUnauthorizedCoa], ['baseline', settings.defaultBaselineCoa], ['beban', settings.expenseCoa]]) {
+    if (!coaCodes.has(code)) errors.push(`Akun sistem ${label} (${code}) tidak ada di master COA.`);
+  }
+  if (errors.length) throw new Error(errors.slice(0, 8).join('\n'));
+  return true;
+}
+
+function normalizeMaster(candidate, { repair = false } = {}) {
+  const normalized = {
+    ...deepClone(candidate || {}),
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    coaList: (candidate?.coaList || []).map(normalizeCoa).filter(coa => coa.code && coa.name),
+    programs: (candidate?.programs || []).map(normalizeProgram).filter(program => program.id && program.name),
+    donors: [],
+    companyAliases: cleanStringList(candidate?.companyAliases, 100),
+    settings: normalizeSettings(candidate?.settings)
+  };
+  ensureSystemCoas(normalized);
+  const fallbackCoa = normalized.settings.defaultBaselineCoa;
+  normalized.donors = (candidate?.donors || []).map(donor => normalizeDonor(donor, fallbackCoa)).filter(donor => donor.name);
+  if (repair) {
+    const coaMap = new Map();
+    normalized.coaList.forEach(coa => coaMap.set(coa.code, coa));
+    normalized.coaList = Array.from(coaMap.values()).sort((a, b) => a.code - b.code);
+
+    const programIds = new Set();
+    const tailCodes = new Set();
+    normalized.programs = normalized.programs.map((program, index) => {
+      let id = program.id;
+      let suffix = 2;
+      while (programIds.has(id)) id = `${program.id}-${suffix++}`;
+      programIds.add(id);
+      const tailCode = program.tailCode && !tailCodes.has(program.tailCode) ? program.tailCode : '';
+      if (tailCode) tailCodes.add(tailCode);
+      return { ...program, id: id || `program-migrasi-${index + 1}`, tailCode };
+    });
+
+    const donorIds = new Set();
+    normalized.donors = normalized.donors.map((donor, index) => {
+      let id = donor.id;
+      let suffix = 2;
+      while (donorIds.has(id)) id = `${donor.id}-${suffix++}`;
+      donorIds.add(id);
+      return { ...donor, id: id || `donor-migrasi-${index + 1}` };
+    });
+  }
+  const coaCodes = new Set(normalized.coaList.map(coa => coa.code));
+  if (repair) {
+    const programIds = new Set(normalized.programs.map(program => program.id));
+    normalized.programs = normalized.programs.map(program => ({
+      ...program,
+      coaCode: coaCodes.has(program.coaCode) ? program.coaCode : fallbackCoa,
+      parentCoaCode: coaCodes.has(program.parentCoaCode) ? program.parentCoaCode : null
+    }));
+    normalized.donors = normalized.donors.map(donor => ({
+      ...donor,
+      defaultProgramId: programIds.has(donor.defaultProgramId) ? donor.defaultProgramId : '',
+      defaultCoa: coaCodes.has(donor.defaultCoa) ? donor.defaultCoa : fallbackCoa
+    }));
+  }
+  validateMasterData(normalized);
+  return normalized;
+}
+
+function commitMaster(candidate, options) {
+  const nextState = normalizeMaster(candidate, options);
+  persist(nextState);
+  state = nextState;
+  notify();
+  return deepClone(state);
+}
+
+export function migrateMasterData(candidate) {
+  return normalizeMaster(candidate, { repair: true });
+}
+
 let state = deepClone(DEFAULT_MASTER_DATA);
 const subscribers = new Set();
 
-function persist() {
+function persist(value = state) {
   try {
-    storageAccessor.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (e) {}
+    storageAccessor.setItem(STORAGE_KEY, JSON.stringify(value));
+  } catch (error) {
+    throw new Error(`Konfigurasi tidak dapat disimpan di browser: ${error?.message || 'penyimpanan tidak tersedia'}`);
+  }
 }
 
 function notify() {
@@ -63,15 +245,22 @@ function init() {
     if (stored) {
       const parsed = JSON.parse(stored);
       if (parsed.coaList && parsed.programs) {
-        state = deepClone(parsed);
-        if (Array.isArray(state.programs)) {
-          state.programs = state.programs.filter(p => !String(p.id).startsWith("BASELINE_"));
+        const migrationInput = deepClone(parsed);
+        if (Array.isArray(migrationInput.programs)) {
+          migrationInput.programs = migrationInput.programs.filter(p => !String(p.id).startsWith("BASELINE_"));
         }
+        state = migrateMasterData(migrationInput);
+        persist();
       }
     }
   } catch (e) {
-    state = deepClone(DEFAULT_MASTER_DATA);
-    persist();
+    state = normalizeMaster(DEFAULT_MASTER_DATA);
+    try {
+      persist();
+    } catch {
+      storageAccessor = memoryStorage;
+      persist();
+    }
   }
 }
 
@@ -122,10 +311,16 @@ export function updateSystemAccounts({ unauthCode, unauthName, umumCode, umumNam
   const bName = sanitizeInputText(umumName, 120) || "Penerimaan Infak & Sedekah - Umum";
   const eName = sanitizeInputText(expenseName, 120) || "Beban Lain-Lain (Pengeluaran Bank)";
 
-  const prevSys = getSystemCodes(state);
+  const next = deepClone(state);
+  const prevSys = getSystemCodes(next);
+  const replacements = new Map([
+    [prevSys.unauth, uCode],
+    [prevSys.umum, bCode],
+    [prevSys.expense, eCode]
+  ]);
 
-  state.settings = {
-    ...state.settings,
+  next.settings = {
+    ...next.settings,
     defaultUnauthorizedCoa: uCode,
     defaultUnauthorizedName: uName,
     defaultBaselineCoa: bCode,
@@ -135,16 +330,17 @@ export function updateSystemAccounts({ unauthCode, unauthName, umumCode, umumNam
   };
 
   // Sync to state.coaList
-  const coaMap = new Map(state.coaList.map(c => [c.code, { ...c }]));
+  const coaMap = new Map(next.coaList.map(c => [c.code, { ...c }]));
 
-  // If codes changed from previous defaults, clean up old defaults if not in use
-  [prevSys.unauth, prevSys.umum, prevSys.expense].forEach(oldCode => {
-    if (oldCode && oldCode !== uCode && oldCode !== bCode && oldCode !== eCode) {
-      if ([40201000, 40201001, 60100008].includes(oldCode)) {
-        coaMap.delete(oldCode);
-      }
-    }
-  });
+  next.programs = next.programs.map(program => ({
+    ...program,
+    coaCode: replacements.get(program.coaCode) || program.coaCode,
+    parentCoaCode: replacements.get(program.parentCoaCode) || program.parentCoaCode
+  }));
+  next.donors = next.donors.map(donor => ({
+    ...donor,
+    defaultCoa: replacements.get(donor.defaultCoa) || donor.defaultCoa
+  }));
 
   coaMap.set(uCode, {
     code: uCode,
@@ -164,11 +360,20 @@ export function updateSystemAccounts({ unauthCode, unauthName, umumCode, umumNam
     category: coaMap.get(eCode)?.category || "BEBAN"
   });
 
-  state.coaList = Array.from(coaMap.values()).sort((a, b) => a.code - b.code);
+  next.coaList = Array.from(coaMap.values()).sort((a, b) => a.code - b.code);
 
-  persist();
-  notify();
-  return getSystemCodes(state);
+  for (const oldCode of [prevSys.unauth, prevSys.umum, prevSys.expense]) {
+    if (oldCode && oldCode !== uCode && oldCode !== bCode && oldCode !== eCode) {
+      const stillReferenced = next.programs.some(p => p.coaCode === oldCode || p.parentCoaCode === oldCode)
+        || next.donors.some(d => d.defaultCoa === oldCode);
+      if (!stillReferenced && [40201000, 40201001, 60100008].includes(oldCode)) {
+        next.coaList = next.coaList.filter(coa => coa.code !== oldCode);
+      }
+    }
+  }
+
+  const committed = commitMaster(next);
+  return getSystemCodes(committed);
 }
 
 function findColumn(headers, aliases, excludedCols = []) {
@@ -278,18 +483,16 @@ export function getMaster() {
   return deepClone(state);
 }
 
+export function isMasterStoragePersistent() {
+  return Boolean(storage) && storageAccessor === storage;
+}
+
 export function updateMaster(patch) {
-  state = deepMerge(state, patch);
-  persist();
-  notify();
-  return deepClone(state);
+  return commitMaster(deepMerge(state, patch));
 }
 
 export function resetToDefaults() {
-  state = deepClone(DEFAULT_MASTER_DATA);
-  persist();
-  notify();
-  return deepClone(state);
+  return commitMaster(DEFAULT_MASTER_DATA);
 }
 
 export function subscribe(callback) {
@@ -306,7 +509,7 @@ export function subscribe(callback) {
  * @param {'merge'|'replace'} mode - 'merge' (append & update) or 'replace' (wipe old data & load new)
  * @param {'coa'|'program'|'donor'|null} targetEntity - Explicit target entity if imported from specific tab
  */
-export function importMasterFromExcel(workbook, mode = 'merge', targetEntity = null) {
+function importMasterFromExcelDraft(workbook, mode = 'merge', targetEntity = null) {
   if (!workbook || !workbook.SheetNames || !workbook.SheetNames.length) {
     throw new Error('Berkas Excel/CSV tidak memuat lembar kerja yang dapat dibaca.');
   }
@@ -548,9 +751,6 @@ export function importMasterFromExcel(workbook, mode = 'merge', targetEntity = n
     throw new Error('Tidak ada baris data valid yang berhasil diimpor.' + errorDetails);
   }
 
-  persist();
-  notify();
-
   const summary = [];
   if (coaCount) summary.push(`${coaCount} COA`);
   if (programCount) summary.push(`${programCount} Program`);
@@ -567,6 +767,18 @@ export function importMasterFromExcel(workbook, mode = 'merge', targetEntity = n
   };
 }
 
+export function importMasterFromExcel(workbook, mode = 'merge', targetEntity = null) {
+  const original = deepClone(state);
+  try {
+    const result = importMasterFromExcelDraft(workbook, mode, targetEntity);
+    commitMaster(state, { repair: mode === 'replace' });
+    return result;
+  } catch (error) {
+    state = original;
+    throw error;
+  }
+}
+
 // ─── CRUD: COA ───────────────────────────────────────────────────────────────
 
 export function addCoa(entry) {
@@ -575,8 +787,7 @@ export function addCoa(entry) {
   const category = sanitizeInputText(entry?.category, 50) || 'UMUM';
   if (!code || !name) throw new Error('Kode dan Nama Akun wajib diisi dengan format valid');
   if (state.coaList.some(c => c.code === code)) throw new Error(`Kode COA ${code} sudah ada`);
-  state.coaList = [...state.coaList, { code, name, category }].sort((a, b) => a.code - b.code);
-  persist(); notify();
+  commitMaster({ ...state, coaList: [...state.coaList, { ...entry, code, name, category }].sort((a, b) => a.code - b.code) });
 }
 
 export function updateCoa(idx, entry) {
@@ -585,8 +796,22 @@ export function updateCoa(idx, entry) {
   const category = sanitizeInputText(entry?.category, 50) || 'UMUM';
   if (!code || !name) throw new Error('Kode dan Nama Akun wajib diisi dengan format valid');
   if (state.coaList.some((c, i) => i !== idx && c.code === code)) throw new Error(`Kode COA ${code} sudah digunakan`);
-  state.coaList = state.coaList.map((c, i) => i === idx ? { ...c, code, name, category } : c).sort((a, b) => a.code - b.code);
-  persist(); notify();
+  const previous = state.coaList[idx];
+  if (!previous) throw new Error('COA tidak ditemukan');
+  const next = deepClone(state);
+  next.coaList = next.coaList.map((c, i) => i === idx ? { ...c, ...entry, code, name, category } : c);
+  if (previous.code !== code) {
+    next.programs = next.programs.map(p => ({
+      ...p,
+      coaCode: p.coaCode === previous.code ? code : p.coaCode,
+      parentCoaCode: p.parentCoaCode === previous.code ? code : p.parentCoaCode
+    }));
+    next.donors = next.donors.map(d => ({ ...d, defaultCoa: d.defaultCoa === previous.code ? code : d.defaultCoa }));
+    if (next.settings.defaultUnauthorizedCoa === previous.code) next.settings.defaultUnauthorizedCoa = code;
+    if (next.settings.defaultBaselineCoa === previous.code) next.settings.defaultBaselineCoa = code;
+    if (next.settings.expenseCoa === previous.code) next.settings.expenseCoa = code;
+  }
+  commitMaster(next);
 }
 
 export function deleteCoa(idx) {
@@ -596,24 +821,25 @@ export function deleteCoa(idx) {
   if ([sys.unauth, sys.umum, sys.expense].includes(c.code)) {
     throw new Error(`COA ${c.code} dipetakan sebagai akun default sistem — ubah dulu di Akun Default Sistem`);
   }
-  state.coaList = state.coaList.filter((_, i) => i !== idx);
-  persist(); notify();
+  const referencedByProgram = state.programs.find(p => p.coaCode === c.code || p.parentCoaCode === c.code);
+  const referencedByDonor = state.donors.find(d => d.defaultCoa === c.code);
+  if (referencedByProgram || referencedByDonor) {
+    throw new Error(`COA ${c.code} masih dipakai oleh ${referencedByProgram ? `program '${referencedByProgram.name}'` : `donatur '${referencedByDonor.name}'`}.`);
+  }
+  commitMaster({ ...state, coaList: state.coaList.filter((_, i) => i !== idx) });
 }
 
 export function batchDeleteCoa(indices) {
   const set = new Set(indices.map(Number));
   const sys = getSystemCodes(state);
   const protectedCodes = [sys.unauth, sys.umum, sys.expense];
-  let deletedCount = 0;
-  state.coaList = state.coaList.filter((c, i) => {
-    if (set.has(i)) {
-      if (protectedCodes.includes(c.code)) return true; // keep protected
-      deletedCount++;
-      return false;
-    }
-    return true;
-  });
-  persist(); notify();
+  const selected = state.coaList.filter((_, i) => set.has(i));
+  const blocked = selected.find(c => protectedCodes.includes(c.code)
+    || state.programs.some(p => p.coaCode === c.code || p.parentCoaCode === c.code)
+    || state.donors.some(d => d.defaultCoa === c.code));
+  if (blocked) throw new Error(`COA ${blocked.code} masih menjadi akun sistem atau dipakai data lain.`);
+  const deletedCount = selected.length;
+  commitMaster({ ...state, coaList: state.coaList.filter((_, i) => !set.has(i)) });
   return deletedCount;
 }
 
@@ -634,9 +860,14 @@ export function addProgram(entry) {
     : [];
 
   if (!id || !name) throw new Error('ID dan Nama Program wajib diisi dengan format valid');
+  if (!state.coaList.some(c => c.code === coaCode)) throw new Error(`COA ${coaCode || '(kosong)'} tidak ada di master COA`);
+  if (parentCoaCode && !state.coaList.some(c => c.code === parentCoaCode)) throw new Error(`Induk COA ${parentCoaCode} tidak ada di master COA`);
   if (state.programs.some(p => p.id === id)) throw new Error(`ID Program '${id}' sudah ada`);
-  state.programs = [...state.programs, { id, name, coaCode, tailCode, keywords, description, parentCoaCode, hiddenKeywords }];
-  persist(); notify();
+  if (tailCode && state.programs.some(p => p.tailCode === tailCode)) throw new Error(`Kode ekor '${tailCode}' sudah digunakan`);
+  commitMaster({
+    ...state,
+    programs: [...state.programs, { ...entry, id, name, coaCode, tailCode, keywords, description, parentCoaCode, hiddenKeywords }]
+  });
 }
 
 export function updateProgram(idx, entry) {
@@ -649,8 +880,7 @@ export function updateProgram(idx, entry) {
     ? entry.keywords.map(k => sanitizeInputText(k, 50)).filter(Boolean)
     : String(entry?.keywords || '').split(/[;,]/).map(k => sanitizeInputText(k, 50)).filter(Boolean);
   const parentCoaCode = entry?.parentCoaCode !== undefined ? sanitizeCoaCode(entry?.parentCoaCode) || null : undefined;
-  // Preserve existing hiddenKeywords if not provided in entry
-  const existingProgram = state.programs.find(p => p.id === entry?.id);
+  const existingProgram = state.programs[idx];
   const hiddenKeywords = entry?.hiddenKeywords !== undefined
     ? Array.isArray(entry?.hiddenKeywords)
       ? entry.hiddenKeywords.map(k => sanitizeInputText(k, 50)).filter(Boolean)
@@ -658,27 +888,48 @@ export function updateProgram(idx, entry) {
     : (existingProgram ? existingProgram.hiddenKeywords : []);
 
   if (!id || !name) throw new Error('ID dan Nama Program wajib diisi');
+  if (!existingProgram) throw new Error('Program tidak ditemukan');
+  if (!state.coaList.some(c => c.code === coaCode)) throw new Error(`COA ${coaCode || '(kosong)'} tidak ada di master COA`);
+  if (parentCoaCode && !state.coaList.some(c => c.code === parentCoaCode)) throw new Error(`Induk COA ${parentCoaCode} tidak ada di master COA`);
   if (state.programs.some((p, i) => i !== idx && p.id === id)) throw new Error(`ID Program '${id}' sudah digunakan`);
-  state.programs = state.programs.map((p, i) => i === idx ? { id, name, coaCode, tailCode, keywords, description, parentCoaCode, hiddenKeywords } : p);
-  persist(); notify();
+  if (tailCode && state.programs.some((p, i) => i !== idx && p.tailCode === tailCode)) throw new Error(`Kode ekor '${tailCode}' sudah digunakan`);
+  const next = deepClone(state);
+  next.programs[idx] = {
+    ...existingProgram,
+    ...entry,
+    id,
+    name,
+    coaCode,
+    tailCode,
+    keywords,
+    description,
+    parentCoaCode: parentCoaCode === undefined ? existingProgram.parentCoaCode || null : parentCoaCode,
+    hiddenKeywords
+  };
+  if (existingProgram.id !== id) {
+    next.donors = next.donors.map(donor => donor.defaultProgramId === existingProgram.id
+      ? { ...donor, defaultProgramId: id, defaultCoa: coaCode }
+      : donor);
+  }
+  commitMaster(next);
 }
 
 export function deleteProgram(idx) {
-  state.programs = state.programs.filter((_, i) => i !== idx);
-  persist(); notify();
+  const program = state.programs[idx];
+  if (!program) return;
+  const donor = state.donors.find(d => d.defaultProgramId === program.id);
+  if (donor) throw new Error(`Program '${program.name}' masih menjadi default donatur '${donor.name}'.`);
+  commitMaster({ ...state, programs: state.programs.filter((_, i) => i !== idx) });
 }
 
 export function batchDeletePrograms(indices) {
   const set = new Set(indices.map(Number));
-  let deletedCount = 0;
-  state.programs = state.programs.filter((_, i) => {
-    if (set.has(i)) {
-      deletedCount++;
-      return false;
-    }
-    return true;
-  });
-  persist(); notify();
+  const selected = state.programs.filter((_, i) => set.has(i));
+  const selectedIds = new Set(selected.map(p => p.id));
+  const donor = state.donors.find(d => selectedIds.has(d.defaultProgramId));
+  if (donor) throw new Error(`Program yang dipilih masih menjadi default donatur '${donor.name}'.`);
+  const deletedCount = selected.length;
+  commitMaster({ ...state, programs: state.programs.filter((_, i) => !set.has(i)) });
   return deletedCount;
 }
 
@@ -690,9 +941,11 @@ export function addDonor(entry) {
   const defaultProgramId = sanitizeSlug(entry?.defaultProgramId, 50);
   const defaultCoa = sanitizeCoaCode(entry?.defaultCoa) || getSystemCodes(state).umum;
   if (!name) throw new Error('Nama Donatur wajib diisi');
-  const id = entry?.id || `donor-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-  state.donors = [...state.donors, { id, name, phone, defaultProgramId, defaultCoa }];
-  persist(); notify();
+  if (defaultProgramId && !state.programs.some(p => p.id === defaultProgramId)) throw new Error(`Program default '${defaultProgramId}' tidak ada`);
+  if (!state.coaList.some(c => c.code === defaultCoa)) throw new Error(`COA default ${defaultCoa} tidak ada`);
+  const id = sanitizeSlug(entry?.id, 80) || `donor-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  if (state.donors.some(d => d.id === id)) throw new Error(`ID Donatur '${id}' sudah digunakan`);
+  commitMaster({ ...state, donors: [...state.donors, { ...entry, id, name, phone, defaultProgramId, defaultCoa }] });
 }
 
 export function updateDonor(idx, entry) {
@@ -700,26 +953,24 @@ export function updateDonor(idx, entry) {
   const phone = sanitizePhone(entry?.phone, 25);
   const defaultProgramId = sanitizeSlug(entry?.defaultProgramId, 50);
   if (!name) throw new Error('Nama Donatur wajib diisi');
-  state.donors = state.donors.map((d, i) => i === idx ? { ...d, name, phone, defaultProgramId } : d);
-  persist(); notify();
+  if (defaultProgramId && !state.programs.some(p => p.id === defaultProgramId)) throw new Error(`Program default '${defaultProgramId}' tidak ada`);
+  const linkedProgram = state.programs.find(p => p.id === defaultProgramId);
+  commitMaster({
+    ...state,
+    donors: state.donors.map((d, i) => i === idx
+      ? { ...d, ...entry, name, phone, defaultProgramId, defaultCoa: sanitizeCoaCode(entry?.defaultCoa) || linkedProgram?.coaCode || d.defaultCoa }
+      : d)
+  });
 }
 
 export function deleteDonor(idx) {
-  state.donors = state.donors.filter((_, i) => i !== idx);
-  persist(); notify();
+  commitMaster({ ...state, donors: state.donors.filter((_, i) => i !== idx) });
 }
 
 export function batchDeleteDonors(indices) {
   const set = new Set(indices.map(Number));
-  let deletedCount = 0;
-  state.donors = state.donors.filter((_, i) => {
-    if (set.has(i)) {
-      deletedCount++;
-      return false;
-    }
-    return true;
-  });
-  persist(); notify();
+  const deletedCount = state.donors.filter((_, i) => set.has(i)).length;
+  commitMaster({ ...state, donors: state.donors.filter((_, i) => !set.has(i)) });
   return deletedCount;
 }
 
@@ -728,40 +979,35 @@ export function batchDeleteDonors(indices) {
 export function addAlias(alias) {
   const clean = sanitizeInputText(alias, 100);
   if (!clean) throw new Error('Nama alias wajib diisi');
-  if (!state.companyAliases) state.companyAliases = [];
-  if (state.companyAliases.some(a => a.toLowerCase() === clean.toLowerCase())) {
+  const aliases = state.companyAliases || [];
+  if (aliases.some(a => a.toLowerCase() === clean.toLowerCase())) {
     throw new Error('Alias sudah ada');
   }
-  state.companyAliases = [...state.companyAliases, clean];
-  persist(); notify();
+  commitMaster({ ...state, companyAliases: [...aliases, clean] });
 }
 
 export function deleteAlias(idx) {
-  state.companyAliases = (state.companyAliases || []).filter((_, i) => i !== idx);
-  persist(); notify();
+  commitMaster({ ...state, companyAliases: (state.companyAliases || []).filter((_, i) => i !== idx) });
 }
 
 export function batchDeleteAliases(indices) {
   const set = new Set(indices.map(Number));
-  let deletedCount = 0;
-  state.companyAliases = (state.companyAliases || []).filter((_, i) => {
-    if (set.has(i)) {
-      deletedCount++;
-      return false;
-    }
-    return true;
-  });
-  persist(); notify();
+  const aliases = state.companyAliases || [];
+  const deletedCount = aliases.filter((_, i) => set.has(i)).length;
+  commitMaster({ ...state, companyAliases: aliases.filter((_, i) => !set.has(i)) });
   return deletedCount;
 }
 
 // ─── CONFIG JSON EXPORT / IMPORT ──────────────────────────────────────────────
 
 export function exportConfigToJson() {
-  return JSON.stringify(deepClone(state), null, 2);
+  const exported = deepClone(state);
+  exported.schemaVersion = CURRENT_SCHEMA_VERSION;
+  exported.settings.aiApiKey = '';
+  return JSON.stringify(exported, null, 2);
 }
 
-export function importConfigFromJson(jsonStr, mode = 'replace') {
+function parseConfigJson(jsonStr) {
   let parsed;
   try {
     parsed = JSON.parse(jsonStr);
@@ -776,96 +1022,63 @@ export function importConfigFromJson(jsonStr, mode = 'replace') {
   if (!parsed.coaList && !parsed.programs && !parsed.donors && !parsed.companyAliases && !parsed.settings) {
     throw new Error('Berkas JSON tidak memuat konfigurasi ZISWAF yang dikenali.');
   }
+  return parsed;
+}
 
+function buildConfigDraft(parsed, mode) {
+  if (!['replace', 'merge'].includes(mode)) throw new Error(`Mode impor '${mode}' tidak dikenal.`);
+  const base = mode === 'replace' ? deepClone(DEFAULT_MASTER_DATA) : deepClone(state);
+  if (parsed.settings && typeof parsed.settings === 'object') {
+    base.settings = normalizeSettings({ ...base.settings, ...parsed.settings, aiApiKey: state.settings.aiApiKey || '' });
+  }
   if (mode === 'replace') {
-    const newState = deepClone(DEFAULT_MASTER_DATA);
     if (Array.isArray(parsed.coaList)) {
-      newState.coaList = parsed.coaList.map(c => ({
-        code: sanitizeCoaCode(c.code),
-        name: sanitizeInputText(c.name, 120),
-        category: sanitizeInputText(c.category, 50) || 'UMUM'
-      })).filter(c => c.code && c.name);
-      SPECIAL_ACCOUNTS.forEach(special => {
-        if (!newState.coaList.some(c => c.code === special.code)) {
-          newState.coaList.push({ ...special });
-        }
-      });
-      newState.coaList.sort((a, b) => a.code - b.code);
+      base.coaList = parsed.coaList.map(normalizeCoa).filter(c => c.code && c.name);
     }
     if (Array.isArray(parsed.programs)) {
-      newState.programs = parsed.programs.map(p => ({
-        id: sanitizeSlug(p.id, 50),
-        name: sanitizeInputText(p.name, 120),
-        coaCode: sanitizeCoaCode(p.coaCode) || 0,
-        tailCode: sanitizeInputText(p.tailCode, 10),
-        keywords: Array.isArray(p.keywords) ? p.keywords.map(k => sanitizeInputText(k, 50)).filter(Boolean) : [],
-        parentCoaCode: sanitizeCoaCode(p.parentCoaCode) || null,
-        hiddenKeywords: Array.isArray(p.hiddenKeywords) ? p.hiddenKeywords.map(k => sanitizeInputText(k, 50)).filter(Boolean) : [],
-        description: sanitizeInputText(p.description, 500)
-      })).filter(p => p.id && p.name);
+      base.programs = parsed.programs.map(normalizeProgram).filter(p => p.id && p.name);
     }
     if (Array.isArray(parsed.donors)) {
-      newState.donors = parsed.donors.map(d => ({
-        id: d.id || `donor-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        name: sanitizeInputText(d.name, 100),
-        phone: sanitizePhone(d.phone, 25),
-        defaultProgramId: sanitizeSlug(d.defaultProgramId, 50),
-        defaultCoa: sanitizeCoaCode(d.defaultCoa) || 40201001
-      })).filter(d => d.name);
+      base.donors = parsed.donors.map(d => normalizeDonor(d, base.settings.defaultBaselineCoa)).filter(d => d.name);
     }
     if (Array.isArray(parsed.companyAliases)) {
-      newState.companyAliases = parsed.companyAliases.map(a => sanitizeInputText(a, 100)).filter(Boolean);
+      base.companyAliases = cleanStringList(parsed.companyAliases, 100);
     }
-    if (parsed.settings && typeof parsed.settings === 'object') {
-      newState.settings = { ...DEFAULT_MASTER_DATA.settings, ...parsed.settings };
-    }
-    state = newState;
   } else {
-    // Merge mode
     if (Array.isArray(parsed.coaList)) {
-      const coaMap = new Map(state.coaList.map(c => [c.code, c]));
+      const coaMap = new Map(base.coaList.map(c => [c.code, c]));
       parsed.coaList.forEach(c => {
-        const code = sanitizeCoaCode(c.code);
-        const name = sanitizeInputText(c.name, 120);
-        const category = sanitizeInputText(c.category, 50) || 'UMUM';
-        if (code && name) coaMap.set(code, { code, name, category });
+        const normalized = normalizeCoa(c);
+        if (normalized.code && normalized.name) coaMap.set(normalized.code, normalized);
       });
-      state.coaList = Array.from(coaMap.values()).sort((a, b) => a.code - b.code);
+      base.coaList = Array.from(coaMap.values()).sort((a, b) => a.code - b.code);
     }
     if (Array.isArray(parsed.programs)) {
-      const progMap = new Map(state.programs.map(p => [p.id, p]));
+      const progMap = new Map(base.programs.map(p => [p.id, p]));
       parsed.programs.forEach(p => {
-        const id = sanitizeSlug(p.id, 50);
-        const name = sanitizeInputText(p.name, 120);
-        const coaCode = sanitizeCoaCode(p.coaCode) || 0;
-        const tailCode = sanitizeInputText(p.tailCode, 10);
-        const keywords = Array.isArray(p.keywords) ? p.keywords.map(k => sanitizeInputText(k, 50)).filter(Boolean) : [];
-        const parentCoaCode = sanitizeCoaCode(p.parentCoaCode) || null;
-        const hiddenKeywords = Array.isArray(p.hiddenKeywords) ? p.hiddenKeywords.map(k => sanitizeInputText(k, 50)).filter(Boolean) : [];
-        if (id && name) progMap.set(id, { id, name, coaCode, tailCode, keywords, parentCoaCode, hiddenKeywords, description: sanitizeInputText(p.description, 500) });
+        const normalized = normalizeProgram(p);
+        if (normalized.id && normalized.name) progMap.set(normalized.id, { ...(progMap.get(normalized.id) || {}), ...normalized });
       });
-      state.programs = Array.from(progMap.values());
+      base.programs = Array.from(progMap.values());
     }
     if (Array.isArray(parsed.donors)) {
-      const donors = [...state.donors];
+      const donors = [...base.donors];
       parsed.donors.forEach(d => {
-        const name = sanitizeInputText(d.name, 100);
-        const phone = sanitizePhone(d.phone, 25);
-        const defaultProgramId = sanitizeSlug(d.defaultProgramId, 50);
-        if (name) {
-          const matchIdx = donors.findIndex(x => (phone && x.phone === phone) || x.name.toLowerCase() === name.toLowerCase());
+        const normalized = normalizeDonor(d, base.settings.defaultBaselineCoa);
+        if (normalized.name) {
+          const matchIdx = donors.findIndex(x => (normalized.phone && x.phone === normalized.phone) || x.name.toLowerCase() === normalized.name.toLowerCase());
           if (matchIdx >= 0) {
-            donors[matchIdx] = { ...donors[matchIdx], name, phone, defaultProgramId };
+            donors[matchIdx] = { ...donors[matchIdx], ...normalized, id: donors[matchIdx].id };
           } else {
-            donors.push({ id: d.id || `donor-${Date.now()}`, name, phone, defaultProgramId, defaultCoa: 40201001 });
+            donors.push(normalized);
           }
         }
       });
-      state.donors = donors;
+      base.donors = donors;
     }
     if (Array.isArray(parsed.companyAliases)) {
-      const aliasSet = new Set((state.companyAliases || []).map(a => a.toLowerCase()));
-      const aliasList = [...(state.companyAliases || [])];
+      const aliasSet = new Set((base.companyAliases || []).map(a => a.toLowerCase()));
+      const aliasList = [...(base.companyAliases || [])];
       parsed.companyAliases.forEach(a => {
         const clean = sanitizeInputText(a, 100);
         if (clean && !aliasSet.has(clean.toLowerCase())) {
@@ -873,14 +1086,69 @@ export function importConfigFromJson(jsonStr, mode = 'replace') {
           aliasList.push(clean);
         }
       });
-      state.companyAliases = aliasList;
-    }
-    if (parsed.settings && typeof parsed.settings === 'object') {
-      state.settings = { ...state.settings, ...parsed.settings };
+      base.companyAliases = aliasList;
     }
   }
+  return normalizeMaster(base);
+}
 
-  persist();
-  notify();
+export function previewConfigImport(jsonStr, mode = 'replace') {
+  const draft = buildConfigDraft(parseConfigJson(jsonStr), mode);
+  const summarize = (currentItems, nextItems, keyOf) => {
+    const currentMap = new Map(currentItems.map(item => [keyOf(item), JSON.stringify(item)]));
+    const nextMap = new Map(nextItems.map(item => [keyOf(item), JSON.stringify(item)]));
+    let added = 0, updated = 0, removed = 0;
+    for (const [key, value] of nextMap) {
+      if (!currentMap.has(key)) added++;
+      else if (currentMap.get(key) !== value) updated++;
+    }
+    for (const key of currentMap.keys()) if (!nextMap.has(key)) removed++;
+    return { added, updated, removed };
+  };
+  return {
+    schemaVersion: draft.schemaVersion,
+    coaCount: draft.coaList.length,
+    programCount: draft.programs.length,
+    donorCount: draft.donors.length,
+    aliasCount: draft.companyAliases.length,
+    changes: {
+      coa: summarize(state.coaList, draft.coaList, item => String(item.code)),
+      programs: summarize(state.programs, draft.programs, item => item.id),
+      donors: summarize(state.donors, draft.donors, item => item.id),
+      aliases: summarize(state.companyAliases, draft.companyAliases, item => item.toLocaleLowerCase('id-ID'))
+    },
+    mode
+  };
+}
+
+export function importConfigFromJson(jsonStr, mode = 'replace') {
+  const draft = buildConfigDraft(parseConfigJson(jsonStr), mode);
+  try {
+    storageAccessor.setItem(BACKUP_STORAGE_KEY, exportConfigToJson());
+  } catch (error) {
+    throw new Error(`Backup sebelum impor tidak dapat dibuat: ${error?.message || 'penyimpanan tidak tersedia'}`);
+  }
+  commitMaster(draft);
+  return true;
+}
+
+export function hasConfigBackup() {
+  try {
+    return Boolean(storageAccessor.getItem(BACKUP_STORAGE_KEY));
+  } catch {
+    return false;
+  }
+}
+
+export function restoreLastConfigBackup() {
+  let raw;
+  try {
+    raw = storageAccessor.getItem(BACKUP_STORAGE_KEY);
+  } catch (error) {
+    throw new Error(`Backup otomatis tidak dapat dibaca: ${error?.message || 'penyimpanan tidak tersedia'}`);
+  }
+  if (!raw) throw new Error('Belum ada backup otomatis yang dapat dipulihkan.');
+  const draft = buildConfigDraft(parseConfigJson(raw), 'replace');
+  commitMaster(draft);
   return true;
 }

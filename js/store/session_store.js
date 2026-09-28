@@ -1,6 +1,50 @@
 const MAX_ROWS = 10_000;
 const subscribers = new Set();
 const STORAGE_KEY_SESSION = "ziswaf_demo_session_rows_v1";
+let generatedRowId = 0;
+
+function canonicalizeRow(row) {
+  const assignedCoaName = String(row?.assignedCoaName || row?.newName || '');
+  return { ...row, assignedCoaName, newName: assignedCoaName };
+}
+
+function canonicalizePatch(patch) {
+  const next = { ...patch };
+  if (Object.prototype.hasOwnProperty.call(next, 'newName') && !Object.prototype.hasOwnProperty.call(next, 'assignedCoaName')) {
+    next.assignedCoaName = next.newName;
+  }
+  if (Object.prototype.hasOwnProperty.call(next, 'assignedCoaName') && !Object.prototype.hasOwnProperty.call(next, 'newName')) {
+    next.newName = next.assignedCoaName;
+  }
+  return next;
+}
+
+function uniqueRowId(preferred, usedIds) {
+  const base = String(preferred || `TX-${Date.now().toString(36)}-${++generatedRowId}`);
+  let id = base;
+  let suffix = 1;
+  while (usedIds.has(id)) id = `${base}-${++suffix}`;
+  usedIds.add(id);
+  return id;
+}
+
+function normalizeRowsWithUniqueIds(inputRows, usedIds = new Set()) {
+  return inputRows.map(row => {
+    const normalized = canonicalizeRow(row);
+    return { ...normalized, id: uniqueRowId(normalized.id, usedIds) };
+  });
+}
+
+export function getTransactionFingerprint(row) {
+  const date = String(row?.transactionDate || row?.rawDate || '').trim();
+  const label = String(row?.rawLabel || '')
+    .normalize('NFKC')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase('id-ID');
+  const amount = Number(row?.rawAmount);
+  return `${date}|${Number.isFinite(amount) ? amount : 'INVALID'}|${label}`;
+}
 
 const storage = (() => {
   try {
@@ -14,7 +58,7 @@ function loadPersistedRows() {
     const raw = storage?.getItem(STORAGE_KEY_SESSION);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) return normalizeRowsWithUniqueIds(parsed);
     }
   } catch (e) {
     console.warn("Gagal memuat sesi tersimpan:", e);
@@ -22,17 +66,17 @@ function loadPersistedRows() {
   return [];
 }
 
-function persistRows() {
+function persistRows(nextRows = rows) {
   try {
     if (storage) {
-      if (rows.length === 0) {
+      if (nextRows.length === 0) {
         storage.removeItem(STORAGE_KEY_SESSION);
       } else {
-        storage.setItem(STORAGE_KEY_SESSION, JSON.stringify(rows));
+        storage.setItem(STORAGE_KEY_SESSION, JSON.stringify(nextRows));
       }
     }
-  } catch (e) {
-    console.warn("Storage quota exceeded or unavailable:", e);
+  } catch (error) {
+    throw new Error(`Transaksi tidak dapat disimpan di browser: ${error?.message || 'kapasitas penyimpanan tidak mencukupi'}`);
   }
 }
 
@@ -90,21 +134,58 @@ export function subscribe(cb) {
 
 export function getRows() { return rows; }
 export function getRowCount() { return rows.length; }
+export function isSessionStoragePersistent() { return Boolean(storage); }
+
+export function previewMergeRows(newRows) {
+  if (!Array.isArray(newRows)) throw new Error('Dataset transaksi harus berupa array.');
+  const seen = new Set(rows.map(getTransactionFingerprint));
+  let added = 0;
+  let duplicates = 0;
+  for (const row of newRows) {
+    const fingerprint = getTransactionFingerprint(row);
+    if (seen.has(fingerprint)) duplicates++;
+    else {
+      seen.add(fingerprint);
+      added++;
+    }
+  }
+  return { incoming: newRows.length, added, duplicates, projectedTotal: rows.length + added };
+}
 
 export function setRows(newRows) {
-  rows = newRows;
-  persistRows();
+  if (!Array.isArray(newRows)) throw new Error('Dataset transaksi harus berupa array.');
+  if (newRows.length > MAX_ROWS) throw new Error(`Batas sesi ${MAX_ROWS.toLocaleString('id-ID')} transaksi terlampaui.`);
+  const nextRows = normalizeRowsWithUniqueIds(newRows);
+  persistRows(nextRows);
+  rows = nextRows;
   currentPage = 1;
   searchTerm = '';
   filterCategory = 'ALL';
+  periodFilter = 'ALL';
+  dateFrom = null;
+  dateTo = null;
+  persistState();
   notify();
 }
 
 export function mergeRows(newRows) {
-  const existing = new Set(rows.map(r => `${r.transactionDate}|${r.rawLabel}|${r.rawAmount}`));
-  const added = newRows.filter(r => !existing.has(`${r.transactionDate}|${r.rawLabel}|${r.rawAmount}`));
-  rows = [...rows, ...added];
-  persistRows();
+  if (!Array.isArray(newRows)) throw new Error('Dataset transaksi harus berupa array.');
+  const existing = new Set(rows.map(getTransactionFingerprint));
+  const usedIds = new Set(rows.map(r => r.id));
+  const added = [];
+  for (const row of newRows) {
+    const fingerprint = getTransactionFingerprint(row);
+    if (existing.has(fingerprint)) continue;
+    existing.add(fingerprint);
+    const normalized = canonicalizeRow(row);
+    added.push({ ...normalized, id: uniqueRowId(normalized.id, usedIds) });
+  }
+  if (rows.length + added.length > MAX_ROWS) {
+    throw new Error(`Hasil gabungan melebihi batas sesi ${MAX_ROWS.toLocaleString('id-ID')} transaksi.`);
+  }
+  const nextRows = [...rows, ...added];
+  persistRows(nextRows);
+  rows = nextRows;
   currentPage = 1;
   notify();
   return added.length;
@@ -113,32 +194,37 @@ export function mergeRows(newRows) {
 export function updateRow(id, patch) {
   const idx = rows.findIndex(r => r.id === id);
   if (idx === -1) return;
-  rows[idx] = { ...rows[idx], ...patch };
-  persistRows();
+  const nextRows = rows.map((row, index) => index === idx ? canonicalizeRow({ ...row, ...canonicalizePatch(patch) }) : row);
+  persistRows(nextRows);
+  rows = nextRows;
   notify();
 }
 
 export function bulkUpdateRows(ids, patch) {
   const set = new Set(ids);
-  rows = rows.map(r => set.has(r.id) ? { ...r, ...patch } : r);
-  persistRows();
+  const normalizedPatch = canonicalizePatch(patch);
+  const nextRows = rows.map(r => set.has(r.id) ? canonicalizeRow({ ...r, ...normalizedPatch }) : r);
+  persistRows(nextRows);
+  rows = nextRows;
   notify();
 }
 
 export function bulkPatchRows(patchMap) {
   const isMap = patchMap instanceof Map;
-  rows = rows.map(r => {
+  const nextRows = rows.map(r => {
     const patch = isMap ? patchMap.get(r.id) : patchMap[r.id];
-    return patch ? { ...r, ...patch } : r;
+    return patch ? canonicalizeRow({ ...r, ...canonicalizePatch(patch) }) : r;
   });
-  persistRows();
+  persistRows(nextRows);
+  rows = nextRows;
   notify();
 }
 
 export function deleteRows(ids) {
   const set = new Set(ids);
-  rows = rows.filter(r => !set.has(r.id));
-  persistRows();
+  const nextRows = rows.filter(r => !set.has(r.id));
+  persistRows(nextRows);
+  rows = nextRows;
   const filtered = getFilteredSorted();
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   if (currentPage > totalPages) currentPage = Math.max(1, totalPages);
@@ -147,15 +233,17 @@ export function deleteRows(ids) {
 
 export function restoreRows(restoredRows) {
   const existingIds = new Set(rows.map(r => r.id));
-  const toAdd = restoredRows.filter(r => !existingIds.has(r.id));
-  rows = [...rows, ...toAdd];
-  persistRows();
+  const toAdd = normalizeRowsWithUniqueIds(restoredRows.filter(r => !existingIds.has(r.id)), existingIds);
+  if (rows.length + toAdd.length > MAX_ROWS) throw new Error(`Batas sesi ${MAX_ROWS.toLocaleString('id-ID')} transaksi terlampaui.`);
+  const nextRows = [...rows, ...toAdd];
+  persistRows(nextRows);
+  rows = nextRows;
   notify();
 }
 
 export function clearRows() {
+  persistRows([]);
   rows = [];
-  persistRows();
   currentPage = 1;
   searchTerm = '';
   filterCategory = 'ALL';
@@ -225,9 +313,9 @@ export function getFilteredSorted() {
 
   if (filterCategory !== 'ALL') {
     if (filterCategory === 'UNAUTHORIZED' || filterCategory === 'UNAUTHORIZED_FALLBACK') {
-      result = result.filter(r => Number(r.assignedCoa) === 40201000 || String(r.assignedCoa) === '40201000' || r.matchedLayer === 'UNAUTHORIZED_FALLBACK');
+      result = result.filter(r => r.matchedLayer === 'UNAUTHORIZED_FALLBACK');
     } else if (filterCategory === 'EXPENSE') {
-      result = result.filter(r => r.isExpense || Number(r.assignedCoa) === 60100008 || String(r.assignedCoa) === '60100008' || r.matchedLayer === 'EXPENSE');
+      result = result.filter(r => r.isExpense || r.matchedLayer === 'EXPENSE');
     } else if (filterCategory === 'MANUAL_OVERRIDE') {
       result = result.filter(r => r.matchedLayer === 'MANUAL_OVERRIDE' || r.isOverridden);
     } else if (filterCategory === 'KEYWORD') {
@@ -247,12 +335,12 @@ export function getFilteredSorted() {
     const t = searchTerm.toLowerCase();
     result = result.filter(r => {
       if (searchScope === 'COA') return String(r.assignedCoa || '').includes(t);
-      if (searchScope === 'COA_NAME') return (r.newName || '').toLowerCase().includes(t);
+      if (searchScope === 'COA_NAME') return (r.assignedCoaName || '').toLowerCase().includes(t);
       if (searchScope === 'LABEL') return (r.cleanedLabel || r.rawLabel || '').toLowerCase().includes(t) || (r.partner || '').toLowerCase().includes(t);
       const label = (r.cleanedLabel || r.rawLabel || '').toLowerCase();
       const partner = (r.partner || '').toLowerCase();
       const coa = String(r.assignedCoa || '');
-      const coaName = (r.newName || '').toLowerCase();
+      const coaName = (r.assignedCoaName || '').toLowerCase();
       return label.includes(t) || partner.includes(t) || coa.includes(t) || coaName.includes(t);
     });
   }
@@ -294,7 +382,7 @@ export function getStats() {
   const inflow = rows.filter(r => !r.isExpense && r.rawAmount > 0).reduce((s, r) => s + r.rawAmount, 0);
   const expense = rows.filter(r => r.isExpense || r.rawAmount < 0).reduce((s, r) => s + Math.abs(r.rawAmount), 0);
   const classified = rows.filter(r => r.matchedLayer !== 'UNAUTHORIZED_FALLBACK').length;
-  const unauthorized = rows.filter(r => r.matchedLayer === 'UNAUTHORIZED_FALLBACK' || r.assignedCoa === 40201000).length;
+  const unauthorized = rows.filter(r => r.matchedLayer === 'UNAUTHORIZED_FALLBACK').length;
   const net = inflow - expense;
   return { inflow, expense, classified, unauthorized, net, total: rows.length };
 }
@@ -302,7 +390,7 @@ export function getStats() {
 export function getProgramTotals(programs) {
   const map = {};
   rows.forEach(r => {
-    if (r.isExpense || r.rawAmount <= 0) return;
+    if (r.isExpense || r.rawAmount <= 0 || r.matchedLayer === 'UNAUTHORIZED_FALLBACK') return;
     const pid = r.assignedProgramId || '__none__';
     if (!map[pid]) map[pid] = { id: pid, name: '', total: 0, count: 0 };
     map[pid].total += r.rawAmount;
@@ -316,24 +404,23 @@ export function getProgramTotals(programs) {
 }
 
 export function getCategoryTotals(coaList) {
-  const GROUPS = {
-    'Zakat': [40100000, 40100101, 40100102, 40100103],
-    'Infak Umum': [40201001],
-    'Infak Terikat': [40201002, 40202101, 40202104, 40202201, 40202301, 40202302, 40202401, 40202501, 40202502],
-    'DSKL': [40202601, 40202602],
-    'Wakaf': [40301000, 40203110, 40203201],
+  const categoryByCode = new Map((coaList || []).map(coa => [Number(coa.code), String(coa.category || 'LAINNYA').trim()]));
+  const labelFor = category => {
+    const upper = category.toUpperCase();
+    if (upper === 'ZAKAT') return 'Zakat';
+    if (upper === 'WAKAF') return 'Wakaf';
+    if (upper === 'DSKL') return 'DSKL';
+    if (upper.includes('INFAK') || upper.includes('SEDEKAH')) return 'Infak / Sedekah';
+    return category || 'Lainnya';
   };
   const result = {};
-  Object.keys(GROUPS).forEach(g => { result[g] = 0; });
 
   rows.forEach(r => {
-    if (r.isExpense || r.rawAmount <= 0) return;
-    for (const [group, codes] of Object.entries(GROUPS)) {
-      if (codes.includes(r.assignedCoa)) {
-        result[group] += r.rawAmount;
-        return;
-      }
-    }
+    if (r.isExpense || r.rawAmount <= 0 || r.matchedLayer === 'UNAUTHORIZED_FALLBACK') return;
+    const category = categoryByCode.get(Number(r.assignedCoa));
+    if (!category || category.toUpperCase() === 'BEBAN') return;
+    const label = labelFor(category);
+    result[label] = (result[label] || 0) + r.rawAmount;
   });
 
   return Object.entries(result)

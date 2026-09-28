@@ -1,690 +1,328 @@
 /**
- * 5-Layer ZISWAF Cashflow Reconciliation Classifier
- * Browser Engine Port of app/engine/classifier.py
+ * Deterministic ZISWAF transaction resolver with optional AI fallback.
+ * Single and batch classification intentionally share the same resolver.
  */
-
 import { cleanTransactionText, normalizeForMatch } from "./sanitizer.js";
-import { classifySemanticClient, classifySemanticBatchClient } from "./ai_matcher.js";
+import { classifySemanticBatchClient } from "./ai_matcher.js";
 
-function round4(value) {
-  return Math.round(value * 10000) / 10000;
-}
-
-/**
- * Strips common Indonesian honorifics/salutations from a name so that
- * "Pak Budi", "Bapak Budi", "Bu Chelsi", "Ibu Chelsi", "H. Ahmad", "Hj. Siti"
- * all normalise to the bare name for matching.
- */
 const HONORIFIC_RE = /^\s*(?:bapak|pak|ibu|bu|dr\.?|drs\.?|prof\.?|hj?\.?|ustaz(?:ah)?|ust\.?|kh\.?|mrs?\.?|miss|ms\.?)\s+/i;
+const ZAKAT_RE = /(?:^|[^a-z0-9])(?:zakat|zkt)(?=$|[^a-z0-9])/i;
+const WAKAF_RE = /(?:^|[^a-z0-9])wakaf(?=$|[^a-z0-9])/i;
+const DONATION_RE = /(?:^|[^a-z0-9])(?:donasi|sedekah|shodaqoh|shadaqah|sodaqoh|sdkh|infaq|infak|amal|sumbangan|bantuan)(?=$|[^a-z0-9])/i;
+const EXPLICIT_EXPENSE_RE = /(?:^|[^a-z0-9])(?:biaya\s+admin(?:istrasi)?|admin\s+bank|bank\s+charge|fee\s+transfer|beban\s+bank)(?=$|[^a-z0-9])/i;
+const NO_MATCH_REASON = 'Tidak ditemukan aturan deterministik; transaksi perlu ditinjau manual.';
+
+const round4 = value => Math.round(value * 10000) / 10000;
+
 function stripHonorific(name) {
-  if (!name) return name;
-  // Strip repeatedly in case of stacked titles, e.g. "Bapak H. Budi"
-  let s = name.trim();
-  let prev;
-  do { prev = s; s = s.replace(HONORIFIC_RE, '').trim(); } while (s !== prev);
-  return s;
+  let value = String(name || '').trim();
+  let previous;
+  do { previous = value; value = value.replace(HONORIFIC_RE, '').trim(); } while (value !== previous);
+  return value;
 }
 
-/**
- * Token-based donor matching: checks both directions.
- * - All sender tokens in donor (sender is subset of donor): "Amalia Faridahjse" → "Ibu Amalia Faridahjse Kamil"
- * - All donor tokens in sender (donor is subset of sender): "Helen Dasa Indah S Pi" → "Ibu Helen Dasa Indah"
- * Requires at least one matching token >= 4 chars to avoid single-short-word false matches.
- * Prevents false positives like "Wahyu" → "Indah Wahyudi".
- */
-function matchDonorTokens(senderBare, donorBare) {
-  const senderTokens = senderBare.split(/\s+/).filter(t => t.length > 0);
-  const donorTokens = donorBare.split(/\s+/).filter(t => t.length > 0);
-  if (senderTokens.length === 0 || donorTokens.length === 0) return false;
-  const hasLongToken = senderTokens.some(t => t.length >= 4) || donorTokens.some(t => t.length >= 4);
-  if (!hasLongToken) return false;
-  // Direction 1: sender is subset of donor (sender tokens all appear in donor)
-  const senderSubset = senderTokens.every(st => donorTokens.includes(st));
-  // Direction 2: donor is subset of sender (donor tokens all appear in sender)
-  const donorSubset = donorTokens.every(dt => senderTokens.includes(dt));
-  return senderSubset || donorSubset;
+function matchDonorTokens(sender, donor) {
+  const senderTokens = sender.split(/\s+/).filter(Boolean);
+  const donorTokens = donor.split(/\s+/).filter(Boolean);
+  if (!senderTokens.length || !donorTokens.length) return false;
+  if (![...senderTokens, ...donorTokens].some(token => token.length >= 4)) return false;
+  return senderTokens.every(token => donorTokens.includes(token))
+    || donorTokens.every(token => senderTokens.includes(token));
 }
 
-/**
- * Classifies a single transaction row
- */
-export async function classifySingle(tx, master) {
-  const { settings, coaList, programs, donors } = master;
-  const expenseCoa = settings.expenseCoa;
-  const defaultUnauthorizedCoa = settings.defaultUnauthorizedCoa;
-  const defaultBaselineCoa = settings.defaultBaselineCoa;
-  const confidenceThreshold = settings.confidenceThreshold || 0.70;
-  
-  const result = {
-    id: tx.id,
-    rawDate: tx.rawDate,
-    transactionDate: tx.rawDate,
-    rawLabel: tx.rawLabel,
-    rawAmount: tx.rawAmount,
-    partner: tx.partner,
-    cleanedLabel: '',
-    extractedSenderName: null,
+function normalizeEvidence(value) {
+  return normalizeForMatch(value).replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function containsPhrase(haystack, phrase) {
+  return Boolean(haystack && phrase && (` ${haystack} `).includes(` ${phrase} `));
+}
+
+function accountName(master, code) {
+  return master.coaList.find(coa => Number(coa.code) === Number(code))?.name || '';
+}
+
+function baseResult(tx, master) {
+  const sanitized = cleanTransactionText(tx.rawLabel, master.companyAliases || []);
+  return {
+    ...tx,
+    transactionDate: tx.transactionDate || tx.rawDate,
+    cleanedLabel: sanitized.cleanedLabel,
+    extractedSenderName: sanitized.extractedSenderName,
+    companyAliasMatched: sanitized.companyAliasMatched,
     assignedCoa: 0,
     assignedCoaName: '',
     assignedProgramId: null,
     matchedLayer: '',
     confidence: 0,
     reasoning: '',
+    evidence: null,
     isExpense: false,
     isOverridden: false
   };
-  
-  const { cleanedLabel, extractedSenderName, companyAliasMatched } = cleanTransactionText(tx.rawLabel, master.companyAliases || []);
-  result.cleanedLabel = cleanedLabel;
-  result.extractedSenderName = extractedSenderName;
-  result.companyAliasMatched = companyAliasMatched;
-  
-  const cleanedLower = cleanedLabel.toLowerCase();
-  const rawLower = String(tx.rawLabel || '').toLowerCase();
-  // Engine-level canonical form for matching (handles WAQAF→WAKAF, QUR'AN→QURAN, etc.)
-  const normalizedLabel = normalizeForMatch(cleanedLabel);
+}
 
-  // Layer 1: Expense — only negative amount or explicit "biaya" (transfer fee)
-  if (tx.rawAmount < 0 || rawLower.includes('biaya')) {
-    result.assignedCoa = expenseCoa;
-    result.assignedCoaName = coaList.find(c => c.code === expenseCoa)?.name || '';
-    result.assignedProgramId = null;
-    result.matchedLayer = 'EXPENSE';
-    result.confidence = 1.0;
-    result.reasoning = 'Terdeteksi sebagai transaksi pengeluaran/beban (nominal negatif atau biaya operasional)';
-    result.isExpense = true;
-    return result;
-  }
-  
-  // Layer 2: Campaign Tail Code — DEFERRED (like donor, keywords take priority)
-  // Only use tailCode if no keyword matches
-  const s = String(Math.trunc(Math.abs(tx.rawAmount)));
-  let tailMatchedProg = null;
-  for (const prog of programs) {
-    if (prog.tailCode && s.endsWith(prog.tailCode) && s.length >= prog.tailCode.length) {
-      tailMatchedProg = prog;
-      break; // first match (program order)
-    }
-  }
-  
-  // Layer 3: Donatur Tetap (Registered Donor) — stored but NOT resolved yet
-  // Keywords take priority over donor defaults when both match
-  let donorTargetCoa = 0;
-  let donorTargetProgram = null;
-  let donorName = null;
-  if (extractedSenderName) {
-    let matchedDonor = null;
-    const senderBare = stripHonorific(extractedSenderName).toLowerCase();
-    const senderNameLower = extractedSenderName.toLowerCase();
-    for (const donor of donors) {
-      const donorBare = stripHonorific(donor.name).toLowerCase();
-      const donorFull = donor.name.toLowerCase();
-      if (
-        donorBare === senderBare ||
-        donorFull === senderNameLower ||
-        matchDonorTokens(senderBare, donorBare)
-      ) {
-        matchedDonor = donor;
-        break;
-      }
-    }
-    
-    if (matchedDonor) {
-      let targetCoa = 0;
-      let targetProgram = null;
-      
-      if (matchedDonor.defaultProgramId) {
-        const prog = programs.find(p => p.id === matchedDonor.defaultProgramId);
-        if (prog) {
-          targetCoa = prog.coaCode;
-          targetProgram = prog.id;
-        } else {
-          targetCoa = matchedDonor.defaultCoa || defaultBaselineCoa;
-          targetProgram = null;
-        }
-      } else {
-        targetCoa = matchedDonor.defaultCoa || defaultBaselineCoa;
-        targetProgram = null;
-      }
-      
-      // Store donor info but DON'T resolve yet — keywords take priority
-      donorTargetCoa = targetCoa;
-      donorTargetProgram = targetProgram;
-      donorName = matchedDonor.name;
-    }
-  }
-
-  // COMPANY_UMUM: Inflow from official foundation account without program keywords
-  let companyMatched = false;
-  for (const alias of (master.companyAliases || [])) {
-    const aliasClean = alias?.trim().toLowerCase();
-    if (aliasClean && (rawLower.includes(aliasClean) || (extractedSenderName && aliasClean === extractedSenderName.trim().toLowerCase()))) {
-      companyMatched = true;
-      break;
-    }
-  }
-  if (companyMatched) {
-    let hasProgramKeyword = false;
-    for (const prog of programs) {
-      const allKw = [...(prog.keywords || []), ...(prog.hiddenKeywords || [])];
-      for (const k of allKw) {
-        const ktrimmed = k?.trim().toLowerCase();
-        if (ktrimmed && cleanedLower.includes(ktrimmed)) {
-          hasProgramKeyword = true;
-          break;
-        }
-      }
-      if (hasProgramKeyword) break;
-    }
-    if (!hasProgramKeyword) {
-      result.assignedCoa = defaultBaselineCoa;
-      result.assignedCoaName = coaList.find(c => c.code === defaultBaselineCoa)?.name || '';
-      result.assignedProgramId = null;
-      result.matchedLayer = 'ORG_ALIAS';
-      result.confidence = 0.90;
-      result.reasoning = 'Transfer dari akun resmi yayasan tanpa keterangan program (dialokasikan ke Umum)';
-      return result;
-    }
-  }
-  
-  // Layer 4: Keywords — weighted scoring (highest score wins)
-  // score = program.priority * 10 + sum of matched keyword lengths
-  // Both label and keywords normalized via engine-level canonicalization
-  // Include both regular keywords and hiddenKeywords (AI-generated typo/synonym variants)
-  let bestKeywordProg = null;
-  let bestKeywordScore = 0;
-  let bestKeywordMatched = '';
-  for (const prog of programs) {
-    const allKeywords = [...(prog.keywords || []), ...(prog.hiddenKeywords || [])];
-    const progPriority = prog.priority || 5;
-    let progScore = 0;
-    let progMatchedKw = '';
-    for (const k of allKeywords) {
-      const ktrimmed = normalizeForMatch(k?.trim());
-      if (ktrimmed && normalizedLabel.includes(ktrimmed)) {
-        const kwScore = ktrimmed.length;
-        if (kwScore > progScore) {
-          progScore = kwScore;
-          progMatchedKw = ktrimmed;
-        }
-      }
-    }
-    if (progScore > 0) {
-      const totalScore = progPriority * 10 + progScore;
-      if (totalScore > bestKeywordScore) {
-        bestKeywordScore = totalScore;
-        bestKeywordProg = prog;
-        bestKeywordMatched = progMatchedKw;
-      }
-    }
-  }
-  // SPECIAL OVERRIDE: Zakat without FITRAH/FITRI → Penerimaan Dana Zakat (parent category)
-  // Zakat is a special category; beneficiary words (YATIM, etc.) don't override it
-  // Only override if current match is NOT already a specific Zakat program
-  const ZAKAT_GENERIC_RE = /\b(?:zakat|zkt)\b/i;
-  const FITRAH_RE = /\b(?:fitrah|fitri|fitr)\b/i;
-  if (bestKeywordProg && ZAKAT_GENERIC_RE.test(normalizedLabel) && 
-      !FITRAH_RE.test(normalizedLabel) &&
-      bestKeywordProg.coaCode !== 40100103 && // not already Fitrah
-      bestKeywordProg.coaCode !== 40100101 && // not already Maal
-      bestKeywordProg.coaCode !== 40100000) { // not already parent
-    const zakatParentProg = programs.find(p => p.coaCode === 40100000);
-    if (zakatParentProg) {
-      bestKeywordProg = zakatParentProg;
-      bestKeywordMatched = 'ZAKAT';
-    }
-  }
-  if (bestKeywordProg) {
-    result.assignedCoa = bestKeywordProg.coaCode;
-    result.assignedCoaName = coaList.find(c => c.code === bestKeywordProg.coaCode)?.name || '';
-    result.assignedProgramId = bestKeywordProg.id;
-    result.matchedLayer = 'KEYWORD';
-    result.confidence = 0.90;
-    result.reasoning = `Deskripsi cocok dengan kata kunci '${bestKeywordMatched}' pada program ${bestKeywordProg.name}`;
-    return result;
-  }
-  
-  // Layer 2.5: Campaign Tail Code fallback — no keyword matched, use tailCode
-  if (tailMatchedProg) {
-    result.assignedCoa = tailMatchedProg.coaCode;
-    result.assignedCoaName = coaList.find(c => c.code === tailMatchedProg.coaCode)?.name || '';
-    result.assignedProgramId = tailMatchedProg.id;
-    result.matchedLayer = 'CAMPAIGN_TAIL';
-    result.confidence = 0.90;
-    result.reasoning = `Nominal berakhiran kode unik kampanye '${tailMatchedProg.tailCode}' untuk program ${tailMatchedProg.name}`;
-    return result;
-  }
-  
-  // Layer 3.5: Donor fallback — keyword didn't match, use donor default
-  if (donorName) {
-    result.assignedCoa = donorTargetCoa;
-    result.assignedCoaName = coaList.find(c => c.code === donorTargetCoa)?.name || '';
-    result.assignedProgramId = donorTargetProgram;
-    result.matchedLayer = 'DONATUR_TETAP';
-    result.confidence = 0.90;
-    result.reasoning = `Pengirim terdaftar sebagai Donatur Tetap: ${donorName}`;
-    return result;
-  }
-  
-  // Layer 4.5: DONASI_UMUM / ZAKAT_WAKAF_UNAUTH — deterministic donation word catch
-  // zakat & wakaf MUST have a specific COA — if no keyword matched, send to UNAUTHORIZED for review
-  // all other donation words → Infak Umum
-  const ZAKAT_WAKAF_RE = /\b(zakat|zkt|wakaf|waqaf)\b/i;
-  const DONASI_UMUM_RE = /\b(donasi|sedekah|shadaqah|sodaqoh|sdkh|infaq?|amal|sumbangan|bantuan)\b/i;
-  if (ZAKAT_WAKAF_RE.test(cleanedLabel) || ZAKAT_WAKAF_RE.test(rawLower)) {
-    result.assignedCoa = defaultUnauthorizedCoa;
-    result.assignedCoaName = coaList.find(c => c.code === defaultUnauthorizedCoa)?.name || '';
-    result.assignedProgramId = null;
-    result.matchedLayer = 'UNAUTHORIZED_FALLBACK';
-    result.confidence = 0.0;
-    result.reasoning = 'Transaksi zakat/wakaf tanpa kata kunci program spesifik — wajib diverifikasi manual';
-    return result;
-  }
-  if (DONASI_UMUM_RE.test(cleanedLabel) || DONASI_UMUM_RE.test(rawLower)) {
-    result.assignedCoa = defaultBaselineCoa;
-    result.assignedCoaName = coaList.find(c => c.code === defaultBaselineCoa)?.name || '';
-    result.assignedProgramId = null;
-    result.matchedLayer = 'DONASI_UMUM';
-    result.confidence = 0.80;
-    result.reasoning = 'Terdeteksi kata donasi/sedekah/infaq tanpa kata kunci program spesifik (Infak Umum)';
-    return result;
-  }
-
-  // Layer 5: Semantic AI Matcher
-  const aiMode = (settings.aiMode || '').toUpperCase();
-  if (aiMode !== 'OFF' && aiMode !== 'DISABLED' && cleanedLabel.trim()) {
-    try {
-      const singleContextOptions = {
-        companyAliases: master.companyAliases || [],
-        orgName: settings.orgName || 'Yayasan / Lembaga Amil Zakat',
-        defaultBaselineCoa,
-        defaultUnauthorizedCoa,
-        donors: donors || []
-      };
-      const res = await classifySemanticBatchClient(
-        [{ id: 'single_1', cleanedLabel }], programs, settings, false, singleContextOptions
-      );
-      const aiRes = res && res[0];
-      if (aiRes && aiRes.confidence >= confidenceThreshold && aiRes.coa) {
-        let matchedProgram = programs.find(p => p.id === aiRes.programId);
-        let finalCoa = matchedProgram ? matchedProgram.coaCode : aiRes.coa;
-        
-        result.assignedCoa = finalCoa;
-        result.assignedCoaName = coaList.find(c => c.code === finalCoa)?.name || '';
-        result.assignedProgramId = matchedProgram ? matchedProgram.id : null;
-        result.matchedLayer = 'AI_SEMANTIC';
-        result.confidence = round4(aiRes.confidence);
-        result.reasoning = aiRes.reason || `Rekomendasi AI semantik (${aiMode})`;
-        return result;
-      }
-    } catch (e) {
-      result.matchedLayer = '';
-    }
-  }
-
-  // Fallback: Unauthorized (AI disabled or no match)
-  result.assignedCoa = defaultUnauthorizedCoa;
-  result.assignedCoaName = coaList.find(c => c.code === defaultUnauthorizedCoa)?.name || '';
-  result.assignedProgramId = null;
-  result.matchedLayer = 'UNAUTHORIZED_FALLBACK';
-  result.confidence = 0.0;
-  result.reasoning = 'Tidak ditemukan kata kunci atau identitas donatur (Karantina Mutasi Buta / Unauthorized)';
+function assign(result, master, { coa, program = null, layer, confidence, reasoning, evidence = null, isExpense = false }) {
+  result.assignedCoa = coa;
+  result.assignedCoaName = accountName(master, coa);
+  result.assignedProgramId = program?.id || null;
+  result.matchedLayer = layer;
+  result.confidence = round4(confidence);
+  result.reasoning = reasoning;
+  result.evidence = evidence;
+  result.isExpense = isExpense;
   return result;
 }
 
-/**
- * High-performance batch classification with Phase 1 (Deterministic) and Phase 2 (Micro-Batch AI)
- * Port of classify_batch_with_progress from app/engine/classifier.py
- */
+function quarantine(result, master, reasoning, evidence = null) {
+  return assign(result, master, {
+    coa: master.settings.defaultUnauthorizedCoa,
+    layer: 'UNAUTHORIZED_FALLBACK',
+    confidence: 0,
+    reasoning,
+    evidence
+  });
+}
+
+function findDonorDecision(senderName, donors) {
+  if (!senderName) return { donor: null, conflict: [] };
+  const senderFull = normalizeEvidence(senderName);
+  const senderBare = normalizeEvidence(stripHonorific(senderName));
+  const candidates = (donors || []).map(donor => {
+    const donorFull = normalizeEvidence(donor.name);
+    const donorBare = normalizeEvidence(stripHonorific(donor.name));
+    const exact = donorFull === senderFull || donorBare === senderBare;
+    const partial = !exact && matchDonorTokens(senderBare, donorBare);
+    return { donor, score: exact ? 2 : partial ? 1 : 0 };
+  }).filter(candidate => candidate.score > 0);
+  if (!candidates.length) return { donor: null, conflict: [] };
+  const bestScore = Math.max(...candidates.map(candidate => candidate.score));
+  const best = candidates.filter(candidate => candidate.score === bestScore);
+  return best.length === 1
+    ? { donor: best[0].donor, conflict: [] }
+    : { donor: null, conflict: best.map(candidate => candidate.donor) };
+}
+
+function findKeywordDecision(label, programs) {
+  const candidates = [];
+  for (const program of programs || []) {
+    let bestKeyword = '';
+    for (const keyword of [...(program.keywords || []), ...(program.hiddenKeywords || [])]) {
+      const normalizedKeyword = normalizeEvidence(keyword);
+      if (containsPhrase(label, normalizedKeyword) && normalizedKeyword.length > bestKeyword.length) bestKeyword = normalizedKeyword;
+    }
+    if (bestKeyword) {
+      const priority = Number.isFinite(Number(program.priority)) ? Number(program.priority) : 5;
+      candidates.push({ program, keyword: bestKeyword, priority, score: priority * 10000 + bestKeyword.length });
+    }
+  }
+  candidates.sort((a, b) => b.score - a.score || a.program.id.localeCompare(b.program.id));
+  if (!candidates.length) return { candidate: null, conflict: [] };
+  const conflict = candidates.filter(candidate => candidate.score === candidates[0].score);
+  return { candidate: conflict.length === 1 ? candidates[0] : null, conflict };
+}
+
+function categoryForCoa(master, code) {
+  return String(master.coaList.find(coa => Number(coa.code) === Number(code))?.category || '').toUpperCase();
+}
+
+/** Runs layers 0–4. A blank matchedLayer means the row is eligible for AI. */
+export function classifyDeterministic(tx, master) {
+  const result = baseResult(tx, master);
+  const programs = master.programs || [];
+  const normalizedLabel = normalizeEvidence(result.cleanedLabel);
+  const normalizedRaw = normalizeEvidence(tx.rawLabel);
+  const amount = Number(tx.rawAmount) || 0;
+
+  if (amount < 0 || EXPLICIT_EXPENSE_RE.test(normalizedRaw)) {
+    return assign(result, master, {
+      coa: master.settings.expenseCoa,
+      layer: 'EXPENSE',
+      confidence: 1,
+      reasoning: amount < 0 ? 'Nominal transaksi negatif (uang keluar).' : 'Keterangan memuat biaya administrasi bank yang eksplisit.',
+      evidence: { type: amount < 0 ? 'negative_amount' : 'explicit_bank_fee', value: amount < 0 ? amount : normalizedRaw },
+      isExpense: true
+    });
+  }
+
+  const amountDigits = String(Math.trunc(Math.abs(amount)));
+  const tailMatches = programs.filter(program => program.tailCode
+    && amountDigits.length >= String(program.tailCode).length
+    && amountDigits.endsWith(String(program.tailCode)));
+  if (tailMatches.length > 1) {
+    return quarantine(result, master, `Kode ekor nominal cocok dengan beberapa program: ${tailMatches.map(p => p.name).join(', ')}.`, {
+      type: 'tail_conflict', value: tailMatches.map(p => p.id)
+    });
+  }
+  if (tailMatches.length === 1) {
+    const program = tailMatches[0];
+    return assign(result, master, {
+      coa: program.coaCode, program, layer: 'CAMPAIGN_TAIL', confidence: 0.95,
+      reasoning: `Nominal berakhiran kode unik '${program.tailCode}' untuk program ${program.name}.`,
+      evidence: { type: 'tail_code', value: program.tailCode }
+    });
+  }
+
+  const donorDecision = findDonorDecision(result.extractedSenderName, master.donors || []);
+  if (donorDecision.conflict.length > 1) {
+    return quarantine(result, master, `Nama pengirim cocok dengan beberapa donatur: ${donorDecision.conflict.map(item => item.name).join(', ')}.`, {
+      type: 'donor_conflict', value: donorDecision.conflict.map(item => item.id)
+    });
+  }
+  const donor = donorDecision.donor;
+  if (donor) {
+    const program = programs.find(item => item.id === donor.defaultProgramId) || null;
+    const coa = program?.coaCode || donor.defaultCoa || master.settings.defaultBaselineCoa;
+    return assign(result, master, {
+      coa, program, layer: 'DONATUR_TETAP', confidence: 0.9,
+      reasoning: `Pengirim cocok dengan donatur terdaftar: ${donor.name}.`,
+      evidence: { type: 'donor', value: donor.id }
+    });
+  }
+
+  const keywordDecision = findKeywordDecision(normalizedLabel, programs);
+  if (keywordDecision.conflict.length > 1) {
+    return quarantine(result, master, `Kata kunci memiliki skor sama pada beberapa program: ${keywordDecision.conflict.map(c => c.program.name).join(', ')}.`, {
+      type: 'keyword_conflict', value: keywordDecision.conflict.map(c => ({ programId: c.program.id, keyword: c.keyword, score: c.score }))
+    });
+  }
+  if (keywordDecision.candidate) {
+    const { program, keyword, score } = keywordDecision.candidate;
+    const category = categoryForCoa(master, program.coaCode);
+    if (ZAKAT_RE.test(normalizedLabel) && category !== 'ZAKAT') {
+      return quarantine(result, master, `Keterangan menyebut zakat tetapi program '${program.name}' bukan akun zakat.`, {
+        type: 'fund_category_conflict', value: { signal: 'zakat', programId: program.id }
+      });
+    }
+    if (WAKAF_RE.test(normalizedLabel) && category !== 'WAKAF') {
+      return quarantine(result, master, `Keterangan menyebut wakaf tetapi program '${program.name}' bukan akun wakaf.`, {
+        type: 'fund_category_conflict', value: { signal: 'wakaf', programId: program.id }
+      });
+    }
+    return assign(result, master, {
+      coa: program.coaCode, program, layer: 'KEYWORD', confidence: 0.9,
+      reasoning: `Keterangan cocok dengan kata kunci '${keyword}' pada program ${program.name}.`,
+      evidence: { type: 'keyword', value: keyword, score }
+    });
+  }
+
+  const alias = (master.companyAliases || []).find(item => containsPhrase(normalizedRaw, normalizeEvidence(item)));
+  if (alias) {
+    return assign(result, master, {
+      coa: master.settings.defaultBaselineCoa, layer: 'ORG_ALIAS', confidence: 0.9,
+      reasoning: 'Keterangan memuat alias lembaga tanpa program khusus; dialokasikan ke akun baseline.',
+      evidence: { type: 'organization_alias', value: alias }
+    });
+  }
+
+  if (ZAKAT_RE.test(normalizedLabel) || WAKAF_RE.test(normalizedLabel)) {
+    return quarantine(result, master, 'Transaksi zakat/wakaf tidak memiliki tujuan program yang cukup spesifik.', {
+      type: 'restricted_fund_without_program', value: normalizedLabel
+    });
+  }
+  if (DONATION_RE.test(normalizedLabel)) {
+    return assign(result, master, {
+      coa: master.settings.defaultBaselineCoa, layer: 'DONASI_UMUM', confidence: 0.8,
+      reasoning: 'Keterangan memuat istilah donasi umum tanpa program khusus.',
+      evidence: { type: 'generic_donation', value: normalizedLabel }
+    });
+  }
+  return result;
+}
+
+function aiEnabled(settings) {
+  const mode = String(settings.aiMode || '').toUpperCase();
+  return mode !== 'OFF' && mode !== 'DISABLED' && mode !== '';
+}
+
+function aiContext(master) {
+  return {
+    companyAliases: master.companyAliases || [],
+    orgName: master.settings.orgName || 'Yayasan / Lembaga Amil Zakat',
+    defaultBaselineCoa: master.settings.defaultBaselineCoa,
+    defaultUnauthorizedCoa: master.settings.defaultUnauthorizedCoa
+  };
+}
+
+function applyAiResult(result, aiResult, master) {
+  const threshold = Number(master.settings.confidenceThreshold) || 0.8;
+  if (aiResult && aiResult.confidence >= threshold && aiResult.coa) {
+    const program = (master.programs || []).find(item => item.id === aiResult.programId) || null;
+    const coa = program?.coaCode || aiResult.coa;
+    return assign(result, master, {
+      coa, program, layer: 'AI_SEMANTIC', confidence: aiResult.confidence,
+      reasoning: aiResult.reason || `Rekomendasi AI semantik (${master.settings.aiMode}).`,
+      evidence: {
+        type: 'ai',
+        value: {
+          provider: aiResult.provider || master.settings.aiMode,
+          model: aiResult.model || master.settings.aiModelName || null,
+          fingerprint: aiResult.fingerprint || null,
+          status: aiResult.status || 'accepted_candidate',
+          programId: aiResult.programId || null
+        }
+      }
+    });
+  }
+  return quarantine(
+    result,
+    master,
+    aiResult?.reason || 'Tidak ditemukan aturan deterministik atau rekomendasi AI yang cukup yakin.',
+    aiResult ? { type: 'ai_rejected', value: { status: aiResult.status || 'no_match', provider: aiResult.provider, model: aiResult.model } } : null
+  );
+}
+
+export async function classifySingle(tx, master) {
+  const deterministic = classifyDeterministic(tx, master);
+  if (deterministic.matchedLayer) return deterministic;
+  if (!aiEnabled(master.settings) || !deterministic.cleanedLabel.trim()) {
+    return quarantine(deterministic, master, NO_MATCH_REASON);
+  }
+  try {
+    const [aiResult] = await classifySemanticBatchClient([deterministic], master.programs || [], master.settings, false, aiContext(master));
+    return applyAiResult(deterministic, aiResult, master);
+  } catch (error) {
+    return quarantine(deterministic, master, `Gagal menghubungi AI: ${error.message}`);
+  }
+}
+
 export async function classifyBatch(rows, master, onProgress) {
-  if (!rows || rows.length === 0) {
-    return [];
-  }
-  
-  const { settings, coaList, programs, donors } = master;
-  const expenseCoa = settings.expenseCoa;
-  const defaultUnauthorizedCoa = settings.defaultUnauthorizedCoa;
-  const defaultBaselineCoa = settings.defaultBaselineCoa;
-  const confidenceThreshold = settings.confidenceThreshold || 0.70;
-  const aiMode = (settings.aiMode || '').toUpperCase();
-  
-  const results = new Array(rows.length);
-  const needsAiIndices = [];
-  const layerCounts = { EXPENSE: 0, CAMPAIGN_TAIL: 0, DONATUR_TETAP: 0, KEYWORD: 0, AI_SEMANTIC: 0, UNAUTHORIZED_FALLBACK: 0 };
-  let resolvedCount = 0;
-  
-  // Phase 1: Deterministic Layers (0 - 4)
-  for (let i = 0; i < rows.length; i++) {
-    const tx = rows[i];
-    const { cleanedLabel, extractedSenderName, companyAliasMatched } = cleanTransactionText(tx.rawLabel, master.companyAliases || []);
-    
-    const item = {
-      id: tx.id,
-      rawDate: tx.rawDate,
-      transactionDate: tx.rawDate,
-      rawLabel: tx.rawLabel,
-      rawAmount: tx.rawAmount,
-      partner: tx.partner,
-      cleanedLabel,
-      extractedSenderName,
-      companyAliasMatched,
-      assignedCoa: 0,
-      assignedCoaName: '',
-      assignedProgramId: null,
-      matchedLayer: '',
-      confidence: 0,
-      reasoning: '',
-      isExpense: false,
-      isOverridden: false
-    };
+  if (!Array.isArray(rows) || !rows.length) return [];
+  const results = rows.map(row => classifyDeterministic(row, master));
+  const pending = [];
+  const layerCounts = {};
+  let completed = 0;
+  const report = result => {
+    layerCounts[result.matchedLayer] = (layerCounts[result.matchedLayer] || 0) + 1;
+    completed += 1;
+    if (onProgress) onProgress(completed, rows.length, result, { ...layerCounts });
+  };
+  results.forEach((result, index) => result.matchedLayer ? report(result) : pending.push(index));
+  if (!pending.length) return results;
 
-    const cleanedLower = cleanedLabel.toLowerCase();
-    const rawLower = String(tx.rawLabel || '').toLowerCase();
-    const normalizedLabel = normalizeForMatch(cleanedLabel);
-
-    // Layer 1: Expense — only negative amount or explicit "biaya" (transfer fee)
-    if (tx.rawAmount < 0 || rawLower.includes('biaya')) {
-      item.assignedCoa = expenseCoa;
-      item.assignedCoaName = coaList.find(c => c.code === expenseCoa)?.name || '';
-      item.assignedProgramId = null;
-      item.matchedLayer = 'EXPENSE';
-      item.confidence = 1.0;
-      item.reasoning = 'Terdeteksi sebagai transaksi pengeluaran/beban (nominal negatif atau biaya operasional)';
-      item.isExpense = true;
-      results[i] = item;
-      resolvedCount++;
-      layerCounts.EXPENSE++;
-      if (onProgress) onProgress(resolvedCount, rows.length, item, layerCounts);
-      continue;
+  if (!aiEnabled(master.settings)) {
+    for (const index of pending) {
+      results[index] = quarantine(results[index], master, NO_MATCH_REASON);
+      report(results[index]);
     }
-
-    // Layer 2: Campaign Tail Code — DEFERRED like donor, keywords take priority
-    const s = String(Math.trunc(Math.abs(tx.rawAmount)));
-    let tailMatchedProg = null;
-    for (const prog of programs) {
-      if (prog.tailCode && s.endsWith(prog.tailCode) && s.length >= prog.tailCode.length) {
-        tailMatchedProg = prog;
-        break;
-      }
-    }
-
-    // Layer 3: Donatur Tetap — donor match stored but NOT resolved (keywords take priority)
-    let matchedDonor = null;
-    let donorTargetCoa = 0;
-    let donorTargetProgram = null;
-    if (extractedSenderName) {
-      const senderBare = stripHonorific(extractedSenderName).toLowerCase();
-      const senderNameLower = extractedSenderName.toLowerCase();
-      for (const donor of donors) {
-        const donorBare = stripHonorific(donor.name).toLowerCase();
-        const donorFull = donor.name.toLowerCase();
-        if (
-          donorBare === senderBare ||
-          donorFull === senderNameLower ||
-          matchDonorTokens(senderBare, donorBare)
-        ) {
-          matchedDonor = donor;
-          break;
-        }
-      }
-      if (matchedDonor) {
-        if (matchedDonor.defaultProgramId) {
-          const prog = programs.find(p => p.id === matchedDonor.defaultProgramId);
-          donorTargetCoa = prog ? prog.coaCode : defaultBaselineCoa;
-          donorTargetProgram = prog ? prog.id : null;
-        } else {
-          donorTargetCoa = matchedDonor.defaultCoa || 0;
-          donorTargetProgram = null;
-        }
-      }
-    }
-
-    // COMPANY_UMUM
-    let companyMatched = false;
-    for (const alias of (master.companyAliases || [])) {
-      const aliasClean = alias?.trim().toLowerCase();
-      if (aliasClean && (rawLower.includes(aliasClean) || (extractedSenderName && aliasClean === extractedSenderName.trim().toLowerCase()))) {
-        companyMatched = true;
-        break;
-      }
-    }
-    if (companyMatched) {
-      let hasProgramKeyword = false;
-      for (const prog of programs) {
-        const allKw = [...(prog.keywords || []), ...(prog.hiddenKeywords || [])];
-        for (const k of allKw) {
-          const ktrimmed = normalizeForMatch(k?.trim());
-          if (ktrimmed && normalizedLabel.includes(ktrimmed)) {
-            hasProgramKeyword = true;
-            break;
-          }
-        }
-        if (hasProgramKeyword) break;
-      }
-      if (!hasProgramKeyword) {
-        item.assignedCoa = defaultBaselineCoa;
-        item.assignedCoaName = coaList.find(c => c.code === defaultBaselineCoa)?.name || '';
-        item.assignedProgramId = null;
-        item.matchedLayer = 'ORG_ALIAS';
-        item.confidence = 0.90;
-        item.reasoning = 'Transfer dari akun resmi yayasan tanpa keterangan program (dialokasikan ke Umum)';
-        results[i] = item;
-        resolvedCount++;
-        layerCounts.DONATUR_TETAP++; // ORG_ALIAS counted in standard layers
-        if (onProgress) onProgress(resolvedCount, rows.length, item, layerCounts);
-        continue;
-      }
-      // Donor block - remove keyword override loop, use donor default program directly
-      // Fall through to normal classification after this block
-    }
-
-    // Layer 4: Keywords — weighted scoring (highest score wins)
-    // score = program.priority * 10 + sum of matched keyword lengths
-    // Both regular keywords and hiddenKeywords (AI-generated typo/synonym variants) are included
-    // Specific keywords (longer, higher-priority programs) beat generic ones
-    let bestKeywordProg = null;
-    let bestKeywordScore = 0;
-    let bestKeywordMatched = '';
-    for (const prog of programs) {
-      const allKeywords = [...(prog.keywords || []), ...(prog.hiddenKeywords || [])];
-      const progPriority = prog.priority || 5;
-      let progScore = 0;
-      let progMatchedKw = '';
-      for (const k of allKeywords) {
-        const ktrimmed = normalizeForMatch(k?.trim());
-        if (ktrimmed && normalizedLabel.includes(ktrimmed)) {
-          const kwScore = ktrimmed.length;
-          if (kwScore > progScore) {
-            progScore = kwScore;
-            progMatchedKw = ktrimmed;
-          }
-        }
-      }
-      if (progScore > 0) {
-        const totalScore = progPriority * 10 + progScore;
-        if (totalScore > bestKeywordScore) {
-          bestKeywordScore = totalScore;
-          bestKeywordProg = prog;
-          bestKeywordMatched = progMatchedKw;
-        }
-      }
-    }
-    // SPECIAL OVERRIDE: Zakat without FITRAH/FITRI → Penerimaan Dana Zakat (parent)
-    // Zakat is a special category; beneficiary words (YATIM, etc.) don't override it
-    // Only override if current match is NOT already a specific Zakat program
-    const ZAKAT_GENERIC_RE_BATCH = /\b(?:zakat|zkt)\b/i;
-    const FITRAH_RE_BATCH = /\b(?:fitrah|fitri|fitr)\b/i;
-    if (bestKeywordProg && ZAKAT_GENERIC_RE_BATCH.test(normalizedLabel) && 
-        !FITRAH_RE_BATCH.test(normalizedLabel) &&
-        bestKeywordProg.coaCode !== 40100103 && // not already Fitrah
-        bestKeywordProg.coaCode !== 40100101 && // not already Maal
-        bestKeywordProg.coaCode !== 40100000) { // not already parent
-    const zakatParentProg = programs.find(p => p.coaCode === 40100000);
-    if (zakatParentProg) {
-      bestKeywordProg = zakatParentProg;
-      bestKeywordMatched = 'ZAKAT';
-    }
-    }
-
-    if (bestKeywordProg) {
-      item.assignedCoa = bestKeywordProg.coaCode;
-      item.assignedCoaName = coaList.find(c => c.code === bestKeywordProg.coaCode)?.name || '';
-      item.assignedProgramId = bestKeywordProg.id;
-      item.matchedLayer = 'KEYWORD';
-      item.confidence = 0.90;
-      item.reasoning = `Deskripsi cocok dengan kata kunci '${bestKeywordMatched}' pada program ${bestKeywordProg.name}`;
-      results[i] = item;
-      resolvedCount++;
-      layerCounts.KEYWORD++;
-      if (onProgress) onProgress(resolvedCount, rows.length, item, layerCounts);
-      continue;
-    }
-
-    // Layer 2.5: Campaign Tail Code fallback — no keyword matched, use tailCode
-    if (tailMatchedProg) {
-      item.assignedCoa = tailMatchedProg.coaCode;
-      item.assignedCoaName = coaList.find(c => c.code === tailMatchedProg.coaCode)?.name || '';
-      item.assignedProgramId = tailMatchedProg.id;
-      item.matchedLayer = 'CAMPAIGN_TAIL';
-      item.confidence = 0.90;
-      item.reasoning = `Nominal berakhiran kode unik kampanye '${tailMatchedProg.tailCode}' untuk program ${tailMatchedProg.name}`;
-      results[i] = item;
-      resolvedCount++;
-      layerCounts.CAMPAIGN_TAIL++;
-      if (onProgress) onProgress(resolvedCount, rows.length, item, layerCounts);
-      continue;
-    }
-
-    // Layer 3.5: Donor fallback — if donor was found but keyword didn't match,
-    // use donor's default. This means keyword explicitly overrides donor default.
-    if (matchedDonor) {
-      item.assignedCoa = donorTargetCoa;
-      item.assignedCoaName = coaList.find(c => c.code === donorTargetCoa)?.name || '';
-      item.assignedProgramId = donorTargetProgram;
-      item.matchedLayer = 'DONATUR_TETAP';
-      item.confidence = 0.90;
-      item.reasoning = `Pengirim terdaftar sebagai Donatur Tetap: ${matchedDonor.name}`;
-      results[i] = item;
-      resolvedCount++;
-      layerCounts.DONATUR_TETAP++;
-      if (onProgress) onProgress(resolvedCount, rows.length, item, layerCounts);
-      continue;
-    }
-
-    // Layer 4.5: DONASI_UMUM / ZAKAT_WAKAF_UNAUTH — deterministic donation word catch
-    // Use same regex as classifySingle for consistent single-vs-batch behavior
-    const ZAKAT_WAKAF_RE = /\b(zakat|zkt|wakaf|waqaf)\b/i;
-    const DONASI_UMUM_RE = /\b(donasi|sedekah|shadaqah|sodaqoh|sdkh|infaq?|amal|sumbangan|bantuan)\b/i;
-    if (ZAKAT_WAKAF_RE.test(cleanedLabel) || ZAKAT_WAKAF_RE.test(rawLower)) {
-      item.assignedCoa = defaultUnauthorizedCoa;
-      item.assignedCoaName = coaList.find(c => c.code === defaultUnauthorizedCoa)?.name || '';
-      item.assignedProgramId = null;
-      item.matchedLayer = 'UNAUTHORIZED_FALLBACK';
-      item.confidence = 0.0;
-      item.reasoning = 'Transaksi zakat/wakaf tanpa kata kunci program spesifik — wajib diverifikasi manual';
-      results[i] = item;
-      resolvedCount++;
-      layerCounts.UNAUTHORIZED_FALLBACK++;
-      if (onProgress) onProgress(resolvedCount, rows.length, item, layerCounts);
-      continue;
-    }
-    if (DONASI_UMUM_RE.test(cleanedLabel) || DONASI_UMUM_RE.test(rawLower)) {
-      item.assignedCoa = defaultBaselineCoa;
-      item.assignedCoaName = coaList.find(c => c.code === defaultBaselineCoa)?.name || '';
-      item.assignedProgramId = null;
-      item.matchedLayer = 'DONASI_UMUM';
-      item.confidence = 0.80;
-      item.reasoning = 'Terdeteksi kata donasi/sedekah/infaq tanpa kata kunci program spesifik (Infak Umum)';
-      results[i] = item;
-      resolvedCount++;
-      layerCounts.KEYWORD++;
-      if (onProgress) onProgress(resolvedCount, rows.length, item, layerCounts);
-      continue;
-    }
-
-    // Collect for Layer 5 AI
-    results[i] = item;
-    needsAiIndices.push(i);
+    return results;
   }
 
-  // Phase 2: Micro-Batch Layer 5 AI Execution
-  if (needsAiIndices.length > 0) {
-    if (aiMode !== 'OFF' && aiMode !== 'DISABLED') {
-      const chunkSize = (aiMode === 'LOCAL_OLLAMA' || aiMode === 'OLLAMA' || aiMode === 'CUSTOM_OPENAI') ? 5 : 15;
-      for (let chunkStart = 0; chunkStart < needsAiIndices.length; chunkStart += chunkSize) {
-        const chunkIndices = needsAiIndices.slice(chunkStart, chunkStart + chunkSize);
-        const chunkItems = chunkIndices.map(idx => results[idx]);
-
-        try {
-          const contextOptions = {
-            companyAliases: master.companyAliases || [],
-            orgName: settings.orgName || 'Yayasan / Lembaga Amil Zakat',
-            defaultBaselineCoa,
-            defaultUnauthorizedCoa,
-            donors: donors || []
-          };
-          const aiBatchResults = await classifySemanticBatchClient(chunkItems, programs, settings, false, contextOptions);
-
-          for (let cPos = 0; cPos < chunkIndices.length; cPos++) {
-            const origIdx = chunkIndices[cPos];
-            const it = results[origIdx];
-            const aiRes = aiBatchResults && aiBatchResults[cPos];
-
-            if (aiRes && aiRes.confidence >= confidenceThreshold && aiRes.coa) {
-              const matchedProgram = programs.find(p => p.id === aiRes.programId);
-              const finalCoa = matchedProgram ? matchedProgram.coaCode : aiRes.coa;
-
-              it.assignedCoa = finalCoa;
-              it.assignedCoaName = coaList.find(c => c.code === finalCoa)?.name || (finalCoa === defaultBaselineCoa ? 'Penerimaan Infak & Sedekah - Umum' : '');
-              it.assignedProgramId = matchedProgram ? matchedProgram.id : null;
-              it.matchedLayer = 'AI_SEMANTIC';
-              it.confidence = round4(aiRes.confidence);
-              it.reasoning = aiRes.reason || `Rekomendasi AI semantik (${aiMode})`;
-              layerCounts.AI_SEMANTIC++;
-            } else {
-              it.assignedCoa = defaultUnauthorizedCoa;
-              it.assignedCoaName = coaList.find(c => c.code === defaultUnauthorizedCoa)?.name || '';
-              it.assignedProgramId = null;
-              it.matchedLayer = 'UNAUTHORIZED_FALLBACK';
-              it.confidence = aiRes ? round4(aiRes.confidence) : 0.0;
-              it.reasoning = aiRes?.reason || 'Tidak ditemukan kata kunci atau kepastian AI (Karantina Mutasi Buta / Unauthorized)';
-              layerCounts.UNAUTHORIZED_FALLBACK++;
-            }
-
-            resolvedCount++;
-            if (onProgress) onProgress(resolvedCount, rows.length, it, layerCounts);
-          }
-        } catch (chunkErr) {
-          for (const origIdx of chunkIndices) {
-            const it = results[origIdx];
-            it.assignedCoa = defaultUnauthorizedCoa;
-            it.assignedCoaName = coaList.find(c => c.code === defaultUnauthorizedCoa)?.name || '';
-            it.assignedProgramId = null;
-            it.matchedLayer = 'UNAUTHORIZED_FALLBACK';
-            it.confidence = 0.0;
-            it.reasoning = 'Gagal menghubungi AI: ' + chunkErr.message;
-            layerCounts.UNAUTHORIZED_FALLBACK++;
-            resolvedCount++;
-            if (onProgress) onProgress(resolvedCount, rows.length, it, layerCounts);
-          }
-        }
-      }
-    } else {
-      // AI is DISABLED — route unmatched rows to Unauthorized for manual review
-      for (const origIdx of needsAiIndices) {
-        const it = results[origIdx];
-        it.assignedCoa = defaultUnauthorizedCoa;
-        it.assignedCoaName = coaList.find(c => c.code === defaultUnauthorizedCoa)?.name || '';
-        it.assignedProgramId = null;
-        it.matchedLayer = 'UNAUTHORIZED_FALLBACK';
-        it.confidence = 0.0;
-        it.reasoning = 'Modul AI nonaktif dan tidak ditemukan kata kunci — perlu review manual (Unauthorized)';
-        layerCounts.UNAUTHORIZED_FALLBACK++;
-        resolvedCount++;
-        if (onProgress) onProgress(resolvedCount, rows.length, it, layerCounts);
+  const chunkSize = 1;
+  for (let start = 0; start < pending.length; start += chunkSize) {
+    const indices = pending.slice(start, start + chunkSize);
+    try {
+      const aiResults = await classifySemanticBatchClient(indices.map(index => results[index]), master.programs || [], master.settings, false, aiContext(master));
+      indices.forEach((index, offset) => {
+        results[index] = applyAiResult(results[index], aiResults?.[offset], master);
+        report(results[index]);
+      });
+    } catch (error) {
+      for (const index of indices) {
+        results[index] = quarantine(results[index], master, `Gagal menghubungi AI: ${error.message}`);
+        report(results[index]);
       }
     }
   }
-
   return results;
 }

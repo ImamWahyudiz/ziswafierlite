@@ -37,8 +37,8 @@
     <meta name="theme-color" content="#0b0f17">
     <meta name="color-scheme" content="dark light">
 
-    <!-- Content Security Policy (Jaminan 100% Keamanan & Tanpa Transmisi Server) -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' https://cdn.jsdelivr.net http://localhost:11434 https://generativelanguage.googleapis.com https://api.openai.com https://openrouter.ai;">
+    <!-- Content Security Policy: membatasi koneksi ke aset dan provider AI yang didukung -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' https://cdn.jsdelivr.net http://localhost:11434 https://generativelanguage.googleapis.com https://api.openai.com;">
 
     <!-- Mobile & PWA Capabilities -->
     <meta name="mobile-web-app-capable" content="yes">
@@ -113,11 +113,11 @@
             "priceCurrency": "IDR"
           },
           "featureList": [
-            "100% Client-Side Processing tanpa penyimpanan database server (privasi mutlak)",
+            "Pemrosesan dan penyimpanan utama berlangsung di browser tanpa database server aplikasi",
             "Data transaksi tersimpan aman di LocalStorage browser (tidak hilang saat refresh/reload)",
             "5-Layer Smart Routing Engine: Pengeluaran, Kode Ekor, Donatur Terdaftar, Kata Kunci, AI Semantic",
             "Dukungan Ekspor / Impor Master Data COA, Program, Donatur, dan Alias Yayasan",
-            "Integrasi Opsional Model AI (Ollama Lokal, Google Gemini, OpenAI, OpenRouter)",
+            "Integrasi Opsional Model AI (Ollama Lokal, Google Gemini, OpenAI)",
             "Ekspor jurnal transaksi siap upload ke SIAK dalam format Excel (.xlsx) dan CSV"
           ]
         },
@@ -127,10 +127,10 @@
           "mainEntity": [
             {
               "@type": "Question",
-              "name": "Apakah data mutasi bank saya aman dan tidak dikirim ke server?",
+              "name": "Apakah data mutasi bank dikirim ke server?",
               "acceptedAnswer": {
                 "@type": "Answer",
-                "text": "Sangat aman. ZISWAFier Lite berjalan 100% di browser lokal Anda (Client-Side). Seluruh pembacaan berkas Excel/CSV mutasi dan klasifikasi berlangsung di memori peramban Anda. Tidak ada satu pun data transaksi yang dikirim atau disimpan di server eksternal mana pun."
+                "text": "Berkas, master data, dan hasil tersimpan di browser tanpa database server aplikasi. Mode AI default adalah OFF. Jika AI cloud diaktifkan, hanya keterangan transaksi yang belum terpetakan dan master program dikirim langsung ke provider pilihan; daftar donatur dan API key tidak masuk berkas backup. Ollama dapat dipakai agar pemrosesan AI tetap lokal."
               }
             },
             {
@@ -178,7 +178,7 @@
                 <a href="#contact" class="nav-link">Kontak</a>
             </div>
             <div class="navbar-actions">
-                <a href="/app" class="btn btn-primary btn-sm btn-nav-cta"
+                <a href="./app" class="btn btn-primary btn-sm btn-nav-cta"
                     style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none;">
                     <i class="fa-solid fa-play"></i> <span class="nav-cta-text">Buka Converter</span>
                 </a>
@@ -205,7 +205,7 @@
                 Otomasi klasifikasi &amp; rekonsiliasi mutasi bank untuk lembaga <strong>Zakat, Infak, Sedekah, dan Wakaf</strong> langsung ke format jurnal SIAK dalam hitungan detik.
             </p>
             <div class="hero-actions">
-                <a href="/app" class="btn btn-hero-primary">
+                <a href="./app" class="btn btn-hero-primary">
                     <i class="fa-solid fa-play"></i> Coba Demo Sekarang
                 </a>
                 <a href="#editions" class="btn btn-hero-outline">
@@ -477,7 +477,7 @@
                                 <i class="fa-solid fa-circle-check"></i>
                                 <div>
                                     <strong>Integrasi AI Fleksibel</strong>
-                                    <p>Dukungan AI Lokal Ollama, Google Gemini, OpenAI (API key di memori sesi)</p>
+                                    <p>Dukungan AI Lokal Ollama, Google Gemini, OpenAI (API key di browser lokal, tidak masuk backup)</p>
                                 </div>
                             </li>
                             <li class="feat-item feat-available">
@@ -490,8 +490,8 @@
                             <li class="feat-item feat-available">
                                 <i class="fa-solid fa-circle-check"></i>
                                 <div>
-                                    <strong>100% Privacy &amp; Zero Install</strong>
-                                    <p>Data keuangan tidak pernah keluar ke server luar — aman di browser Anda</p>
+                                    <strong>Local-First &amp; Zero Install</strong>
+                                    <p>Data tersimpan di browser; AI default OFF dan koneksi cloud hanya aktif bila Anda memilihnya</p>
                                 </div>
                             </li>
                             <li class="feat-item feat-unavailable">
@@ -540,7 +540,7 @@
                     </div>
 
                     <div class="edition-card-footer">
-                        <a href="/app" class="btn btn-primary w-100 btn-edition-action">
+                        <a href="./app" class="btn btn-primary w-100 btn-edition-action">
                             <i class="fa-solid fa-play"></i> Buka Versi Demo Sekarang
                         </a>
                     </div>
@@ -785,7 +785,7 @@
                         <div class="contact-icon"><i class="fa-solid fa-play"></i></div>
                         <div>
                             <h4>Web Converter App</h4>
-                            <a href="/app">Buka Aplikasi Converter Langsung</a>
+                            <a href="./app">Buka Aplikasi Converter Langsung</a>
                         </div>
                     </div>
                 </div>
@@ -843,7 +843,7 @@
                     <a href="#editions">Demo vs Full</a>
                     <a href="#governance">Tata Kelola</a>
                     <a href="#contact">Kontak</a>
-                    <a href="/app">Aplikasi Converter</a>
+                    <a href="./app">Aplikasi Converter</a>
                     <a href="https://github.com/ImamWahyudiz/ziswafierlite" target="_blank" rel="noopener">GitHub</a>
                 </div>
                 <div class="footer-bottom">

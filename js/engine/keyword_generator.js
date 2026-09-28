@@ -4,7 +4,19 @@
  * and respects COA hierarchy for keyword quality assessment.
  */
 
-import { callGemini, callOpenAICompatible, callOllama, cleanJsonResponse, fetchWithTimeout } from "./ai_matcher.js";
+import { callGemini, callOpenAICompatible, callOllama, cleanJsonResponse } from "./ai_matcher.js";
+
+const KEYWORD_ANALYSIS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['collisions', 'missing', 'variants', 'hierarchy_fixes'],
+  properties: {
+    collisions: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['keyword', 'programs', 'suggestion'], properties: { keyword: { type: 'string' }, programs: { type: 'array', items: { type: 'string' } }, suggestion: { type: 'string' } } } },
+    missing: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['program_id', 'suggested_keyword', 'reason'], properties: { program_id: { type: 'string' }, suggested_keyword: { type: 'string' }, reason: { type: 'string' } } } },
+    variants: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['program_id', 'keyword', 'variants', 'type'], properties: { program_id: { type: 'string' }, keyword: { type: 'string' }, variants: { type: 'array', items: { type: 'string' } }, type: { type: 'string' } } } },
+    hierarchy_fixes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['program_id', 'keyword', 'action', 'reason'], properties: { program_id: { type: 'string' }, keyword: { type: 'string' }, action: { type: 'string' }, reason: { type: 'string' } } } }
+  }
+};
 
 /**
  * Generates typo/synonym/abbreviation variants for a keyword.
@@ -266,19 +278,20 @@ OUTPUT (JSON murni, tanpa markdown):
  */
 export async function generateKeywordSuggestions(master, settings) {
   if (!master || !master.programs) throw new Error('Master data tidak valid');
-  if (!settings.aiApiKey) throw new Error('API Key AI belum diisi');
 
   const prompt = buildKeywordAnalysisPrompt(master);
 
   let rawResponse = '';
   const mode = (settings.aiMode || '').toUpperCase();
 
-  if (mode === 'GEMINI' || mode === 'GOOGLE_GEMINI' || mode === 'CLOUD_API') {
-    rawResponse = await callGemini(prompt, settings);
-  } else if (mode === 'OPENAI' || mode === 'GROQ' || mode === 'OPENROUTER' || mode === 'CUSTOM_OPENAI') {
-    rawResponse = await callOpenAICompatible(prompt, settings);
+  if ((mode === 'GEMINI' || mode === 'GOOGLE_GEMINI') && settings.aiApiKey) {
+    rawResponse = await callGemini(prompt, settings, KEYWORD_ANALYSIS_SCHEMA);
+  } else if (mode === 'OPENAI' && settings.aiApiKey) {
+    rawResponse = await callOpenAICompatible(prompt, settings, KEYWORD_ANALYSIS_SCHEMA);
   } else if (mode === 'LOCAL_OLLAMA' || mode === 'OLLAMA') {
-    rawResponse = await callOllama(prompt, settings);
+    rawResponse = await callOllama(prompt, settings, KEYWORD_ANALYSIS_SCHEMA);
+  } else if (!settings.aiApiKey) {
+    throw new Error('API Key AI belum diisi');
   } else {
     throw new Error('Provider AI tidak didukung');
   }

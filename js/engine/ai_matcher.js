@@ -1,7 +1,7 @@
 /**
  * AI Semantic Matcher - Browser Engine Port of app/engine/ai_matcher.py
- * Supports: GOOGLE_GEMINI, LOCAL_OLLAMA, OPENAI, GROQ, OPENROUTER
- * Features: Compact Flat-Table Prompt, Micro-Batching, In-Memory Label Cache, Circuit Breaker, JSON Sanitization
+ * Supports: GEMINI, LOCAL_OLLAMA, OPENAI
+ * Features: Independent label prompts, In-Memory Label Cache, Circuit Breaker, JSON Sanitization
  */
 
 // Circuit breaker tracking
@@ -11,6 +11,47 @@ let circuitOpenTime = 0;
 const CIRCUIT_THRESHOLD = 3;
 const CIRCUIT_TIMEOUT_MS = 60000; // 60s cooldown
 const REQUEST_TIMEOUT_MS = 60000; // 60s timeout
+const AI_CONTRACT_VERSION = 'program-id-only-v3';
+
+export const CLASSIFICATION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['decisions'],
+  properties: {
+    decisions: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 1,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['item_id', 'program_id', 'confidence', 'reason'],
+        properties: {
+          item_id: { type: 'string' },
+          program_id: { type: ['string', 'null'] },
+          confidence: { type: 'number', minimum: 0, maximum: 1 },
+          reason: { type: 'string', maxLength: 160 }
+        }
+      }
+    }
+  }
+};
+
+function schemaForItem(itemId, programs) {
+  const schema = JSON.parse(JSON.stringify(CLASSIFICATION_SCHEMA));
+  schema.properties.decisions.items.properties.item_id.enum = [String(itemId)];
+  schema.properties.decisions.items.properties.program_id.enum = [null, ...(programs || []).map(program => String(program.id))];
+  return schema;
+}
+
+export function resolveAiModel(settings = {}) {
+  const configured = String(settings.aiModelName || '').trim();
+  if (configured) return configured;
+  const mode = String(settings.aiMode || '').toUpperCase();
+  if (mode === 'GEMINI' || mode === 'GOOGLE_GEMINI') return 'gemini-3.5-flash-lite';
+  if (mode === 'LOCAL_OLLAMA' || mode === 'OLLAMA') return 'qwen2.5:3b-instruct';
+  return 'gpt-5.6-luna';
+}
 
 export function resetCircuitBreaker() {
   consecutiveFailures = 0;
@@ -35,7 +76,7 @@ export function clearAiCache() {
 
 /**
  * Compresses master program list into an ultra-compact flat text index
- * Format: ID|COA|NAMA_PROGRAM|HINTS
+ * Format: ID|NAMA_PROGRAM|HINTS
  */
 function formatCompactPrograms(programs) {
   const lines = [];
@@ -44,44 +85,51 @@ function formatCompactPrograms(programs) {
     if (p.description) hints.push(p.description.slice(0, 80));
     if (p.keywords && p.keywords.length > 0) hints.push(p.keywords.slice(0, 6).join(', '));
     const hintStr = hints.join(' | ').replace(/\n/g, ' ').trim();
-    lines.push(`${p.id}|${p.coaCode}|${p.name}|${hintStr}`);
+    lines.push(`${p.id}|${p.name}|${hintStr}`);
   }
   return lines.join('\n');
 }
 
-/**
- * Compresses donor list into compact index — used as AI safety net
- * Format: NAMA|PROGRAM_DEFAULT  (capped at 80 entries to avoid prompt bloat)
- */
-function formatCompactDonors(donors) {
-  if (!donors || donors.length === 0) return '';
-  return donors
-    .slice(0, 80)
-    .map(d => {
-      const prog = d.defaultProgramId ? `→${d.defaultProgramId}` : '';
-      return `${d.name}${prog}`;
-    })
-    .join('\n');
+function hashText(text) {
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function cacheFingerprint(programs, settings, options) {
+  return hashText(JSON.stringify({
+    contract: AI_CONTRACT_VERSION,
+    provider: String(settings?.aiMode || '').toUpperCase(),
+    model: resolveAiModel(settings),
+    programs: (programs || []).map(p => ({
+      id: p.id,
+      coa: p.coaCode,
+      name: p.name,
+      keywords: p.keywords || [],
+      hiddenKeywords: p.hiddenKeywords || [],
+      description: p.description || ''
+    })),
+    baseline: options.defaultBaselineCoa || null,
+    unauthorized: options.defaultUnauthorizedCoa || null,
+    aliases: options.companyAliases || [],
+    orgName: options.orgName || ''
+  }));
 }
 
 /**
- * Builds the compact batch prompt with full master data context
+ * Builds one isolated prompt so another transaction cannot influence the label.
  */
-function buildCompactPrompt(items, programs, options = {}) {
+function buildCompactPrompt(item, programs, options = {}) {
   const compactProgTable = formatCompactPrograms(programs);
-  const txLines = items.map((it, idx) => `${idx + 1}: "${it.cleanedLabel || it.rawLabel}"`);
-  const txBlock = txLines.join('\n');
-
   const aliases = (options.companyAliases || []).filter(Boolean);
-  const baselineCoa = options.defaultBaselineCoa || 40201001;
-  const unauthCoa = options.defaultUnauthorizedCoa || 40201000;
+  const itemId = String(item.id || 'transaction');
+  const label = String(item.cleanedLabel || item.rawLabel || '');
 
   const aliasSection = aliases.length > 0
     ? `\nALIAS/NAMA LEMBAGA: ${aliases.join(', ')}\n`
-    : '';
-
-  const donorSection = options.donors && options.donors.length > 0
-    ? `\nDONATUR TETAP (NAMA→PROGRAM_DEFAULT):\n${formatCompactDonors(options.donors)}\n`
     : '';
 
   return `Kamu asisten akuntansi syariah ZISWAF untuk lembaga amil zakat Indonesia. Analisis konteks & maksud mutasi donatur dalam BAHASA INDONESIA, lalu tentukan program/COA yang cocok.
@@ -96,22 +144,21 @@ ATURAN BAHASA INDONESIA:
 - "Shadaqah" / "Sedekah" tanpa program → Infak Umum
 - "Infaq" / "Infak" + nama program → program itu; "Infaq" tanpa nama → Infak Umum
 
-${aliasSection}${donorSection}
-MASTER PROGRAM (ID|COA|NAMA_PROGRAM|DESKRIPSI|KEYWORDS):
+${aliasSection}
+MASTER PROGRAM (ID|NAMA_PROGRAM|DESKRIPSI/KEYWORDS):
 ${compactProgTable}
 
-TRANSAKSI:
-${txBlock}
+TRANSAKSI TUNGGAL:
+- item_id: ${JSON.stringify(itemId)}
+- label: ${JSON.stringify(label)}
 
 INSTRUKSI:
-1. Cocok program spesifik: Beri id_program, no_akun program, confidence 0.85-1.0.
-2. Nama pengirim cocok Donatur Tetap di atas: Gunakan program default donatur (atau Infak Umum jika kosong), confidence 0.90.
-3. Donasi umum / sebut alias lembaga (ada kata donasi/sedekah/infaq/sumbangan tanpa program khusus): Alokasikan ke Infak Umum (id_program: null, no_akun: ${baselineCoa}, confidence: 0.90).
-4. Mutasi buta / tanpa kata donasi dan tidak dikenal (misal hanya nama pengirim, nomor rekening, atau kode transfer bank): DILARANG MENEBAK program! WAJIB Karantina ke Unauthorized (id_program: null, no_akun: ${unauthCoa}, confidence: 0.0).
-5. Output HANYA JSON array murni tanpa markdown, format:
-[
-  {"idx": 1, "id_program": "<id_atau_null>", "no_akun": <number>, "confidence": <float_0_1>, "reason": "<maks_10_kata>"}
-]`;
+1. Jika cocok program spesifik, kembalikan program_id persis dari master dan confidence 0.85-1.0.
+2. Untuk donasi umum tanpa program khusus, gunakan program_id null dan confidence 0.85-1.0.
+3. Untuk mutasi buta/tidak dikenal, gunakan program_id null dan confidence 0.0. DILARANG menebak.
+4. Jangan mengembalikan nomor COA, nama program sebagai ID, atau ID baru.
+5. item_id wajib sama persis. Output satu keputusan dalam JSON object murni tanpa markdown:
+{"decisions":[{"item_id":${JSON.stringify(itemId)},"program_id":null,"confidence":0.0,"reason":"<maks_10_kata>"}]}`;
 }
 
 
@@ -131,6 +178,22 @@ export async function fetchWithTimeout(url, options, timeout = REQUEST_TIMEOUT_M
   }
 }
 
+async function fetchWithRetry(url, options, timeout = REQUEST_TIMEOUT_MS) {
+  let response;
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      response = await fetchWithTimeout(url, options, timeout);
+      if (response.ok || (response.status !== 429 && response.status < 500)) return response;
+      lastError = new Error(`HTTP ${response.status}: ${response.statusText}`);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (response) return response;
+  throw lastError || new Error('Koneksi AI gagal.');
+}
+
 /**
  * Strips markdown code blocks and repairs JSON text
  */
@@ -138,58 +201,53 @@ export function cleanJsonResponse(rawText) {
   if (!rawText) return '';
   let text = String(rawText).trim();
   text = text.replace(/^```(?:json)?\s*/gi, '').replace(/\s*```$/gi, '').trim();
-
-  // Find array [ ... ]
-  const startArr = text.indexOf('[');
-  if (startArr !== -1) {
-    const endArr = text.lastIndexOf(']');
-    if (endArr !== -1 && endArr > startArr) {
-      return text.slice(startArr, endArr + 1);
+  const objectStart = text.indexOf('{');
+  const arrayStart = text.indexOf('[');
+  const start = objectStart === -1 ? arrayStart : arrayStart === -1 ? objectStart : Math.min(objectStart, arrayStart);
+  if (start === -1) return text;
+  const stack = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const char = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
     }
-    const lastBrace = text.lastIndexOf('}');
-    if (lastBrace !== -1 && lastBrace > startArr) {
-      return text.slice(startArr, lastBrace + 1) + '\n]';
+    if (char === '"') { inString = true; continue; }
+    if (char === '{' || char === '[') stack.push(char);
+    if (char === '}' || char === ']') {
+      const expected = char === '}' ? '{' : '[';
+      if (stack.pop() !== expected) return '';
+      if (!stack.length) return text.slice(start, i + 1);
     }
   }
-
-  // Find object { ... }
-  const startObj = text.indexOf('{');
-  if (startObj !== -1) {
-    const endObj = text.lastIndexOf('}');
-    if (endObj !== -1 && endObj > startObj) {
-      return `[${text.slice(startObj, endObj + 1)}]`;
-    }
-  }
-  return text;
+  return '';
 }
 
 function parseConfidence(val) {
-  try {
-    let num = typeof val === 'string' ? parseFloat(val.replace('%', '').trim()) : Number(val);
-    if (isNaN(num)) return 0.0;
-    if (num > 1.0) num = num / 100.0;
-    return Math.max(0.0, Math.min(1.0, num));
-  } catch {
-    return 0.0;
-  }
+  if (typeof val !== 'number' || !Number.isFinite(val) || val < 0 || val > 1) return null;
+  return val;
 }
 
 /**
  * Calls Ollama local endpoint
  */
-export async function callOllama(prompt, settings) {
+export async function callOllama(prompt, settings, responseSchema = CLASSIFICATION_SCHEMA) {
   const endpoint = (settings.ollamaEndpoint || 'http://localhost:11434').replace(/\/api\/(?:chat|generate)$/i, '').replace(/\/+$/, '');
-  const model = settings.aiModelName || 'qwen2.5:3b-instruct';
+  const model = resolveAiModel(settings);
   const url = `${endpoint}/api/generate`;
 
-  const response = await fetchWithTimeout(url, {
+  const response = await fetchWithRetry(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: model,
       prompt: prompt,
       stream: false,
-      format: 'json',
+      format: responseSchema,
       options: { temperature: 0.0, top_p: 0.9 }
     })
   }, REQUEST_TIMEOUT_MS);
@@ -202,35 +260,22 @@ export async function callOllama(prompt, settings) {
 /**
  * Calls Google Gemini Cloud API
  */
-export async function callGemini(prompt, settings) {
+export async function callGemini(prompt, settings, responseSchema = CLASSIFICATION_SCHEMA) {
   const apiKey = (settings.aiApiKey || '').trim();
   if (!apiKey) throw new Error('API Key Google Gemini belum diisi. Masukkan API Key di tab Pengaturan AI.');
 
-  let rawModel = (settings.aiModelName || 'gemini-3.5-flash').trim().replace(/^\/?models\//i, '');
-  let model = rawModel.toLowerCase().replace(/\s+/g, '-');
-
-  // Automatic routing for legacy/deprecated model names to active Gemini models
-  if (!model || model === 'gemini-2.0-flash' || model === 'gemini-1.5-flash' || model === 'gemini-2.5-flash' || model.includes('3.1-flash-lite')) {
-    model = 'gemini-3.5-flash';
-  }
-
-  const modelsToTry = [model];
-  if (!modelsToTry.includes('gemini-3.5-flash')) modelsToTry.push('gemini-3.5-flash');
-  if (!modelsToTry.includes('gemini-3.6-flash')) modelsToTry.push('gemini-3.6-flash');
-
-  let lastError = null;
-  for (const currentModel of modelsToTry) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(currentModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const model = resolveAiModel(settings).replace(/^\/?models\//i, '').toLowerCase().replace(/\s+/g, '-');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
       const payload = {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           responseMimeType: 'application/json',
+          responseJsonSchema: responseSchema,
           temperature: 0.0
         }
       };
 
-      const response = await fetchWithTimeout(url, {
+      const response = await fetchWithRetry(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -244,63 +289,48 @@ export async function callGemini(prompt, settings) {
         } catch {
           errBody = response.statusText;
         }
-        throw new Error(`Gemini API Error (${response.status}): ${errBody}`);
+        throw new Error(`Gemini API Error (${response.status}, model ${model}): ${errBody}`);
       }
 
       const json = await response.json();
       const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
       if (text) return text;
-    } catch (err) {
-      lastError = err;
-      if (err.message.includes('401') || err.message.includes('403') || err.message.includes('API key not valid') || err.message.includes('API_KEY_INVALID')) {
-        throw err;
-      }
-    }
-  }
-
-  throw lastError || new Error('Gagal mendapatkan respon dari Google Gemini API.');
+  throw new Error(`Gemini model ${model} tidak mengembalikan respons.`);
 }
 
 /**
- * Calls OpenAI / Groq / OpenRouter API
+ * Calls the OpenAI Responses API.
  */
-export async function callOpenAICompatible(prompt, settings) {
+export async function callOpenAICompatible(prompt, settings, responseSchema = CLASSIFICATION_SCHEMA) {
   const apiKey = (settings.aiApiKey || '').trim();
   if (!apiKey) throw new Error('API Key AI belum diisi.');
 
-  let endpoint = (settings.ollamaEndpoint || '').trim();
   const mode = (settings.aiMode || '').toUpperCase();
-
-  if (mode === 'GROQ') {
-    endpoint = 'https://api.groq.com/openai/v1/chat/completions';
-  } else if (mode === 'OPENROUTER') {
-    endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-  } else if (!endpoint || mode === 'OPENAI') {
-    endpoint = 'https://api.openai.com/v1/chat/completions';
-  }
-
-  const model = settings.aiModelName || (mode === 'GROQ' ? 'llama-3.3-70b-versatile' : mode === 'OPENROUTER' ? 'qwen/qwen-2.5-72b-instruct' : 'gpt-4o-mini');
+  if (mode !== 'OPENAI') throw new Error(`Provider ${mode || '(kosong)'} tidak didukung.`);
+  const endpoint = 'https://api.openai.com/v1/responses';
+  const model = resolveAiModel(settings);
 
   const headers = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${apiKey}`
   };
 
-  if (endpoint.includes('openrouter.ai')) {
-    headers['HTTP-Referer'] = window.location.origin || 'http://localhost';
-    headers['X-Title'] = 'ZISWAF Classifier Lite';
-  }
-
   const payload = {
     model: model,
-    messages: [
-      { role: 'system', content: 'You are a financial classification assistant for Indonesian ZISWAF funds. Always respond with pure JSON array.' },
-      { role: 'user', content: prompt }
-    ],
-    temperature: 0.0
+    instructions: 'Klasifikasikan dana ZISWAF Indonesia secara konservatif. Jangan membuat program atau COA baru.',
+    input: prompt,
+    reasoning: { effort: 'none' },
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'ziswaf_classification',
+        strict: true,
+        schema: responseSchema
+      }
+    }
   };
 
-  const response = await fetchWithTimeout(endpoint, {
+  const response = await fetchWithRetry(endpoint, {
     method: 'POST',
     headers: headers,
     body: JSON.stringify(payload)
@@ -318,7 +348,10 @@ export async function callOpenAICompatible(prompt, settings) {
   }
 
   const json = await response.json();
-  return json.choices?.[0]?.message?.content || '';
+  return json.output_text
+    || json.output?.flatMap(item => item.content || []).find(part => part.type === 'output_text')?.text
+    || json.choices?.[0]?.message?.content
+    || '';
 }
 
 /**
@@ -330,152 +363,146 @@ export async function classifySemanticClient(cleanedLabel, programs, settings) {
   return results && results[0] ? results[0] : null;
 }
 
-/**
- * High-Efficiency Micro-Batch Semantic Classification
- * Port of classify_semantic_batch from app/engine/ai_matcher.py
- */
+function aiResult(status, reason, settings, fingerprint, extra = {}) {
+  return {
+    programId: null,
+    coa: null,
+    confidence: 0,
+    reason,
+    status,
+    provider: String(settings?.aiMode || '').toUpperCase(),
+    model: resolveAiModel(settings),
+    fingerprint,
+    ...extra
+  };
+}
+
+function parseSingleDecision(rawResponseText, itemId, programs, settings, contextOptions, fingerprint) {
+  const cleanedJson = cleanJsonResponse(rawResponseText);
+  if (!cleanedJson) return aiResult('invalid_response', 'Respons AI tidak memuat JSON valid.', settings, fingerprint);
+
+  let payload;
+  try {
+    payload = JSON.parse(cleanedJson);
+  } catch {
+    return aiResult('invalid_response', 'Respons AI bukan JSON valid.', settings, fingerprint);
+  }
+
+  if (!payload || Array.isArray(payload) || typeof payload !== 'object'
+      || Object.keys(payload).some(key => key !== 'decisions')
+      || !Array.isArray(payload.decisions) || payload.decisions.length !== 1) {
+    return aiResult('invalid_response', 'Respons AI harus memuat tepat satu keputusan.', settings, fingerprint);
+  }
+
+  const decision = payload.decisions[0];
+  const allowedKeys = new Set(['item_id', 'program_id', 'confidence', 'reason']);
+  if (!decision || typeof decision !== 'object' || Array.isArray(decision)
+      || Object.keys(decision).some(key => !allowedKeys.has(key))
+      || !Object.prototype.hasOwnProperty.call(decision, 'program_id')) {
+    return aiResult('invalid_response', 'Struktur keputusan AI tidak sesuai kontrak.', settings, fingerprint);
+  }
+  if (String(decision.item_id) !== String(itemId)) {
+    return aiResult('guardrail_rejected', 'AI mengembalikan identitas transaksi yang tidak cocok.', settings, fingerprint);
+  }
+
+  const confidence = parseConfidence(decision.confidence);
+  if (confidence === null) {
+    return aiResult('guardrail_rejected', 'AI mengembalikan confidence di luar rentang 0–1.', settings, fingerprint);
+  }
+  if (typeof decision.reason !== 'string') {
+    return aiResult('invalid_response', 'AI tidak mengembalikan alasan dalam format teks.', settings, fingerprint);
+  }
+
+  const programId = decision.program_id === null ? null : String(decision.program_id);
+  const matchedProgram = programId === null
+    ? null
+    : (programs || []).find(program => String(program.id) === programId);
+  if (programId !== null && !matchedProgram) {
+    return aiResult('guardrail_rejected', `AI mengembalikan program tidak dikenal '${programId}'.`, settings, fingerprint);
+  }
+
+  const coa = matchedProgram?.coaCode
+    || (confidence > 0 ? contextOptions.defaultBaselineCoa : contextOptions.defaultUnauthorizedCoa);
+  if (!coa) {
+    return aiResult('guardrail_rejected', 'Akun sistem untuk keputusan AI tidak tersedia.', settings, fingerprint);
+  }
+
+  return aiResult(confidence > 0 ? 'accepted_candidate' : 'no_match', decision.reason.trim().slice(0, 160), settings, fingerprint, {
+    programId: matchedProgram?.id || null,
+    coa,
+    confidence
+  });
+}
+
+async function callProviderForItem(mode, item, programs, settings, contextOptions) {
+  if (circuitOpen) {
+    if (Date.now() - circuitOpenTime < CIRCUIT_TIMEOUT_MS) {
+      throw new Error('Provider AI dinonaktifkan sementara setelah tiga kegagalan beruntun.');
+    }
+    circuitOpen = false;
+    consecutiveFailures = 0;
+  }
+
+  const itemId = String(item.id || 'transaction');
+  const prompt = buildCompactPrompt({ ...item, id: itemId }, programs, contextOptions);
+  const schema = schemaForItem(itemId, programs);
+  if (mode === 'LOCAL_OLLAMA' || mode === 'OLLAMA') return callOllama(prompt, settings, schema);
+  if (mode === 'GEMINI' || mode === 'GOOGLE_GEMINI') return callGemini(prompt, settings, schema);
+  if (mode === 'OPENAI') return callOpenAICompatible(prompt, settings, schema);
+  throw new Error(`Provider AI '${mode || '(kosong)'}' tidak didukung.`);
+}
+
+/** Classifies each distinct label in an isolated provider request. */
 export async function classifySemanticBatchClient(items, programs, settings, bypassCache = false, contextOptions = {}) {
   if (!items || items.length === 0) return [];
   const mode = (settings?.aiMode || '').toUpperCase();
   if (mode === 'OFF' || mode === 'DISABLED') return items.map(() => null);
 
   const results = new Array(items.length).fill(null);
-  const uncachedIndices = [];
+  const fingerprint = cacheFingerprint(programs, settings, contextOptions);
+  const pendingByKey = new Map();
+  lastCallError = null;
 
   for (let idx = 0; idx < items.length; idx++) {
     const it = items[idx];
     const lbl = (it.cleanedLabel || it.rawLabel || '').trim();
     if (!lbl) continue;
-    const normKey = lbl.toLowerCase();
-
+    const normKey = `${fingerprint}:${lbl.toLowerCase()}`;
     if (!bypassCache && _aiLabelCache.has(normKey)) {
       results[idx] = _aiLabelCache.get(normKey);
     } else {
-      uncachedIndices.push(idx);
+      const pending = pendingByKey.get(normKey) || { item: it, indices: [] };
+      pending.indices.push(idx);
+      pendingByKey.set(normKey, pending);
     }
   }
 
-  if (uncachedIndices.length === 0) {
-    return results;
-  }
-
-  // Check Circuit Breaker
-  if (circuitOpen) {
-    if (Date.now() - circuitOpenTime < CIRCUIT_TIMEOUT_MS) {
-      return results;
-    }
-    circuitOpen = false;
-    consecutiveFailures = 0;
-  }
-
-  const uncachedItems = uncachedIndices.map(i => items[i]);
-  const prompt = buildCompactPrompt(uncachedItems, programs, contextOptions);
-
-  let rawResponseText = '';
-  try {
-    if (mode === 'LOCAL_OLLAMA' || mode === 'OLLAMA') {
-      rawResponseText = await callOllama(prompt, settings);
-    } else if (mode === 'GEMINI' || mode === 'GOOGLE_GEMINI' || mode === 'CLOUD_API') {
-      rawResponseText = await callGemini(prompt, settings);
-    } else if (mode === 'OPENAI' || mode === 'GROQ' || mode === 'OPENROUTER' || mode === 'CUSTOM_OPENAI') {
-      rawResponseText = await callOpenAICompatible(prompt, settings);
-    } else {
-      return results;
-    }
-
-    const cleanedJson = cleanJsonResponse(rawResponseText);
-    let parsedData = [];
+  for (const [normKey, pending] of pendingByKey) {
+    const itemId = String(pending.item.id || `transaction-${pending.indices[0] + 1}`);
+    let parsedResult;
     try {
-      parsedData = JSON.parse(cleanedJson);
-      if (!Array.isArray(parsedData) && typeof parsedData === 'object' && parsedData !== null) {
-        parsedData = [parsedData];
+      const rawResponseText = await callProviderForItem(mode, { ...pending.item, id: itemId }, programs, settings, contextOptions);
+      consecutiveFailures = 0;
+      circuitOpen = false;
+      parsedResult = parseSingleDecision(rawResponseText, itemId, programs, settings, contextOptions, fingerprint);
+    } catch (error) {
+      consecutiveFailures += 1;
+      if (consecutiveFailures >= CIRCUIT_THRESHOLD) {
+        circuitOpen = true;
+        circuitOpenTime = Date.now();
       }
-    } catch {
-      parsedData = [];
+      lastCallError = error;
+      parsedResult = aiResult('provider_error', `Gagal menghubungi AI: ${error.message}`, settings, fingerprint);
     }
 
-    // Reset circuit breaker on success
-    consecutiveFailures = 0;
-    circuitOpen = false;
-
-    // Build lookup sets for whitelist sanitization
-    const validProgMap = new Map();
-    for (const p of programs || []) {
-      validProgMap.set(String(p.id), p);
+    for (const index of pending.indices) results[index] = parsedResult;
+    if (!bypassCache && ['accepted_candidate', 'no_match'].includes(parsedResult.status)) {
+      _aiLabelCache.set(normKey, parsedResult);
     }
-
-    for (let pos = 0; pos < parsedData.length; pos++) {
-      const dataItem = parsedData[pos];
-      if (!dataItem) continue;
-
-      let targetOrigIdx = -1;
-      const itemIdxNum = parseInt(dataItem.idx, 10);
-      if (!isNaN(itemIdxNum) && itemIdxNum >= 1 && itemIdxNum <= uncachedIndices.length) {
-        targetOrigIdx = uncachedIndices[itemIdxNum - 1];
-      } else if (pos < uncachedIndices.length) {
-        targetOrigIdx = uncachedIndices[pos];
-      }
-
-      if (targetOrigIdx === -1) continue;
-
-      let progId = dataItem.id_program !== undefined ? dataItem.id_program : dataItem.program_id;
-      progId = progId ? String(progId).trim() : null;
-
-      let matchedProgram = null;
-      if (progId && validProgMap.has(progId)) {
-        matchedProgram = validProgMap.get(progId);
-      } else if (progId) {
-        // Search by name or code if LLM returned name/code instead of id
-        for (const p of programs) {
-          if (String(p.id).toLowerCase() === progId.toLowerCase() ||
-              String(p.coaCode) === progId ||
-              p.name.toLowerCase() === progId.toLowerCase()) {
-            matchedProgram = p;
-            progId = p.id;
-            break;
-          }
-        }
-      }
-
-      let coa = Number(dataItem.no_akun || dataItem.coa);
-      if (matchedProgram) {
-        coa = matchedProgram.coaCode;
-      }
-
-      const confidence = parseConfidence(dataItem.confidence);
-      const reason = String(dataItem.reason || 'Rekomendasi AI Semantik').trim();
-
-      const parsedRes = {
-        programId: matchedProgram ? matchedProgram.id : null,
-        coa: coa || (matchedProgram ? matchedProgram.coaCode : null),
-        confidence: confidence,
-        reason: reason
-      };
-
-      results[targetOrigIdx] = parsedRes;
-
-      const normKey = (items[targetOrigIdx].cleanedLabel || items[targetOrigIdx].rawLabel || '').trim().toLowerCase();
-      if (normKey) {
-        _aiLabelCache.set(normKey, parsedRes);
-      }
-    }
-
-    trimCache();
-    return results;
-  } catch (err) {
-    consecutiveFailures++;
-    if (consecutiveFailures >= CIRCUIT_THRESHOLD) {
-      circuitOpen = true;
-      circuitOpenTime = Date.now();
-    }
-    lastCallError = err;
-    console.warn('AI Classifier Warning:', err.message);
-    if (bypassCache) {
-      // If called explicitly (e.g. Test Connection or Rescan), throw the underlying error!
-      throw err;
-    }
-    return results;
   }
+
+  trimCache();
+  return results;
 }
 
 let lastCallError = null;
@@ -491,14 +518,7 @@ export async function testAIConnection(settings) {
   const testItem = [{ id: 'test_1', cleanedLabel: 'Zakat penghasilan bulanan' }];
 
   const provider = (settings.aiMode || 'OFF').toUpperCase();
-  let resolvedModel = (settings.aiModelName || '').trim();
-  if (!resolvedModel) {
-    if (provider === 'GEMINI' || provider === 'GOOGLE_GEMINI') resolvedModel = 'gemini-3.5-flash';
-    else if (provider === 'LOCAL_OLLAMA' || provider === 'OLLAMA') resolvedModel = 'qwen2.5:3b-instruct';
-    else if (provider === 'GROQ') resolvedModel = 'llama-3.3-70b-versatile';
-    else if (provider === 'OPENROUTER') resolvedModel = 'qwen/qwen-2.5-72b-instruct';
-    else resolvedModel = 'gpt-4o-mini';
-  }
+  const resolvedModel = resolveAiModel(settings);
 
   const startTime = Date.now();
   resetCircuitBreaker();
@@ -506,7 +526,11 @@ export async function testAIConnection(settings) {
   
   let results;
   try {
-    results = await classifySemanticBatchClient(testItem, dummyPrograms, settings, true);
+    results = await classifySemanticBatchClient(testItem, dummyPrograms, settings, true, {
+      defaultBaselineCoa: 40201001,
+      defaultUnauthorizedCoa: 40201000,
+      companyAliases: []
+    });
   } catch (err) {
     throw new Error(`Provider ${provider} (${resolvedModel}): ${err.message}`);
   }

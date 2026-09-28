@@ -1,4 +1,5 @@
 export const DEFAULT_MASTER_DATA = {
+  schemaVersion: 2,
   coaList: [
     { code: 40100000, name: "Penerimaan Zakat Tanpa Pembatasan - Baseline", category: "ZAKAT" },
     { code: 40100101, name: "Zakat Maal Individu / Penghasilan", category: "ZAKAT" },
@@ -9,6 +10,7 @@ export const DEFAULT_MASTER_DATA = {
     { code: 40201002, name: "Penerimaan Infak & Sedekah Terikat", category: "INFAK / SEDEKAH" },
     { code: 40202101, name: "Infak Kebencanaan & Kemanusiaan", category: "INFAK / SEDEKAH" },
     { code: 40202104, name: "Santunan Yatim Dhuafa & Penghafal Al-Qur'an", category: "INFAK / SEDEKAH" },
+    { code: 40202105, name: "Infak Program Berbuka Puasa", category: "INFAK / SEDEKAH" },
     { code: 40202201, name: "Infak Beasiswa Pendidikan Dhuafa", category: "INFAK / SEDEKAH" },
     { code: 40202301, name: "Infak Layanan Kesehatan Gratis", category: "INFAK / SEDEKAH" },
     { code: 40202302, name: "Bantuan Gizi Santri & Pangan Dhuafa", category: "INFAK / SEDEKAH" },
@@ -18,13 +20,13 @@ export const DEFAULT_MASTER_DATA = {
     { code: 40202601, name: "Tebar Qurban Berkah", category: "DSKL" },
     { code: 40202602, name: "Penerimaan Fidyah & Kafarat", category: "DSKL" },
     { code: 40301000, name: "Penerimaan Wakaf Tanpa Pembatasan", category: "WAKAF" },
+    { code: 40203000, name: "Penerimaan Wakaf Uang - Umum", category: "WAKAF" },
     { code: 40203110, name: "Penerimaan Wakaf Uang - Tunai", category: "WAKAF" },
     { code: 40203201, name: "Wakaf Pembangunan Sarana Ibadah & Pesantren", category: "WAKAF" },
     { code: 60100008, name: "Beban Lain-Lain (Pengeluaran Bank)", category: "BEBAN" }
   ],
 
-  // Programs ordered: SPECIFIC programs first, GENERIC programs last
-  // L4 keyword matching checks programs in array order — first match wins
+  // Priority and keyword specificity drive L4 matching; equal top scores are quarantined.
   programs: [
     // === SPECIFIC PROGRAMS (checked first) ===
     {
@@ -59,7 +61,7 @@ export const DEFAULT_MASTER_DATA = {
     },
     {
       id: "prog-buka",
-      name: "Buka Berbahagia",
+      name: "Program Berbuka Puasa",
       coaCode: 40202105,
       tailCode: "",
       parentCoaCode: null,
@@ -104,7 +106,7 @@ export const DEFAULT_MASTER_DATA = {
     {
       id: "prog-zkt-fitrah",
       name: "Zakat Fitrah",
-      coaCode: 40100103,
+      coaCode: 40100102,
       tailCode: "007",
       parentCoaCode: 40100000,
       hiddenKeywords: [],
@@ -113,7 +115,7 @@ export const DEFAULT_MASTER_DATA = {
     },
     {
       id: "prog-qurban",
-      name: "Qurban Berbahagia",
+      name: "Program Qurban",
       coaCode: 40202601,
       tailCode: "003",
       parentCoaCode: null,
@@ -133,7 +135,7 @@ export const DEFAULT_MASTER_DATA = {
     },
     {
       id: "prog-wakaf-kawasan",
-      name: "Bantu Bangun Kawasan",
+      name: "Wakaf Pembangunan Sarana Ibadah",
       coaCode: 40203110,
       tailCode: "",
       parentCoaCode: 40301000,
@@ -143,9 +145,9 @@ export const DEFAULT_MASTER_DATA = {
     },
     {
       id: "prog-sarana-fisik",
-      name: "Sarana Fisik",
+      name: "Pengadaan Sarana Fisik",
       coaCode: 40202502,
-      tailCode: "205",
+      tailCode: "",
       keywords: ["sarana fisik", "alat pondok", "sound system", "toa masjid", "peralatan"],
       description: "Pengadaan sarana fisik pendukung operasional pesantren."
     },
@@ -209,12 +211,12 @@ export const DEFAULT_MASTER_DATA = {
     // === GENERIC PROGRAMS (checked LAST) ===
     {
       id: "prog-sdq-subuh",
-      name: "Bantu Operasional Santri",
+      name: "Infak Operasional Pendidikan",
       coaCode: 40201001,
       tailCode: "",
       keywords: ["makan", "makan santri", "makan pondok", "mkan santri", "alhamdulillah", "bismillah",
         "hamba allah", "untuk penghafal quran", "program pondok", "beasiswa santri",
-        "yayasan islam center", "doa", "untuk santri", "operasional pondok", "untuk masjid",
+        "doa", "untuk santri", "operasional pondok", "untuk masjid",
         "untuk pesantren", "semoga berkah", "semoga bermanfaat",
         "donasi", "sedekah", "sodaqoh", "shadaqah", "infaq", "infak",
         "sedekah subuh", "sodaqoh subuh"],
@@ -222,23 +224,17 @@ export const DEFAULT_MASTER_DATA = {
     }
   ],
 
+  // Seluruh identitas di bawah ini adalah data contoh, bukan data donatur nyata.
   donors: [
-    { id: "dnr-titik-sunarni", name: "Titik Sunarni", phone: "081298765432", defaultProgramId: "prog-sdq-subuh", defaultCoa: 40201001 },
-    { id: "dnr-sinta-patimah", name: "Sinta Patimah", phone: "081234998877", defaultProgramId: "prog-sdq-subuh", defaultCoa: 40201001 },
-    { id: "dnr-bambang-soediro", name: "H. Bambang Soediro", phone: "081345678901", defaultProgramId: "prog-zkt-maal", defaultCoa: 40100101 },
-    { id: "dnr-siti-aminah", name: "Hj. Siti Aminah", phone: "081567890123", defaultProgramId: "prog-beasiswa", defaultCoa: 40202201 },
-    { id: "dnr-hendra-gunawan", name: "Dr. Hendra Gunawan", phone: "081234567891", defaultProgramId: "prog-zkt-fitrah", defaultCoa: 40100103 },
-    { id: "dnr-agus-setiawan", name: "Ir. Agus Setiawan", phone: "081678901234", defaultProgramId: "prog-wakaf-kawasan", defaultCoa: 40203110 }
+    { id: "donor-contoh-01", name: "Donatur Contoh 01", phone: "080000000001", defaultProgramId: "prog-sdq-subuh", defaultCoa: 40201001 },
+    { id: "donor-contoh-02", name: "Donatur Contoh 02", phone: "080000000002", defaultProgramId: "prog-zkt-maal", defaultCoa: 40100101 },
+    { id: "donor-contoh-03", name: "Donatur Contoh 03", phone: "080000000003", defaultProgramId: "prog-beasiswa", defaultCoa: 40202201 },
+    { id: "donor-contoh-04", name: "Donatur Contoh 04", phone: "080000000004", defaultProgramId: "prog-zkt-fitrah", defaultCoa: 40100102 }
   ],
 
   companyAliases: [
-    "Yayasan Amil Zakat Kebumen",
-    "yayasan",
-    "amil zakat",
-    "lazis",
-    "lazismu",
-    "baznas",
-    "baas kebumen"
+    "Nama Yayasan Contoh",
+    "Nama Lembaga Amil Zakat"
   ],
 
   settings: {
@@ -246,9 +242,11 @@ export const DEFAULT_MASTER_DATA = {
     defaultBaselineCoa: 40201001,
     expenseCoa: 60100008,
     aiMode: "OFF",
+    aiModelName: "",
     aiApiKey: "",
     ollamaEndpoint: "http://localhost:11434/api/chat",
-    confidenceThreshold: 0.70
+    confidenceThreshold: 0.80,
+    accountingStandard: "PSAK 409 (sebelumnya PSAK 109)"
   }
 };
 

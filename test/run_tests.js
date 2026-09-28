@@ -1,6 +1,7 @@
 import assert from "node:assert";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { execFileSync } from "node:child_process";
 
 const require = createRequire(import.meta.url);
 globalThis.XLSX = require("../js/vendor/xlsx.full.min.js");
@@ -8,7 +9,8 @@ const XLSX = globalThis.XLSX;
 
 const { DEFAULT_MASTER_DATA } = await import("../js/config/default_presets.js");
 const { cleanTransactionText } = await import("../js/engine/sanitizer.js");
-const { classifySingle, classifyBatch } = await import("../js/engine/classifier.js");
+const { classifySingle, classifyBatch, classifyDeterministic } = await import("../js/engine/classifier.js");
+const aiMatcher = await import("../js/engine/ai_matcher.js");
 const store = await import("../js/store/master_store.js");
 const adapter = await import("../js/services/excel_adapter.js");
 
@@ -41,8 +43,9 @@ await ok("bank token skipped in sender extraction", () => {
   assert.strictEqual(r.extractedSenderName, "TITIK SUNARNI");
 });
 await ok("company alias removed", () => {
-  const r = cleanTransactionText("Transfer zakat ke Yayasan Amil Zakat Kebumen program quran", ALIASES);
-  assert.ok(!r.cleanedLabel.toLowerCase().includes("yayasan amil"));
+  const alias = ALIASES[0];
+  const r = cleanTransactionText(`Transfer zakat ke ${alias} program quran`, ALIASES);
+  assert.ok(!r.cleanedLabel.toLowerCase().includes(alias.toLowerCase()));
 });
 await ok("dana wallet noise removed", () => {
   const r = cleanTransactionText("TRF DARI - ANDI PRATAMA - Dana20250214Danaidj1010O9995748782S", []);
@@ -71,9 +74,20 @@ await ok("L2 tail code -> campaign program COA", async () => {
   assert.strictEqual(r.assignedProgramId, "prog-zkt-maal");
 });
 await ok("L3 registered donor -> routine program", async () => {
-  const r = await classifySingle(tx(4, "TRF DARI - BCA - TITIK SUNARNI", 10000), M);
+  const donor = M.donors[0];
+  const r = await classifySingle(tx(4, `TRF DARI - BCA - ${donor.name}`, 10000), M);
   assert.strictEqual(r.matchedLayer, "DONATUR_TETAP");
-  assert.strictEqual(r.assignedProgramId, "prog-sdq-subuh");
+  assert.strictEqual(r.assignedProgramId, donor.defaultProgramId);
+});
+await ok("ambiguous partial donor names are quarantined", async () => {
+  const ambiguousMaster = JSON.parse(JSON.stringify(M));
+  ambiguousMaster.donors = [
+    { id: 'donor-ahmad-1', name: 'Ahmad Hidayat', defaultProgramId: '', defaultCoa: 40201001 },
+    { id: 'donor-ahmad-2', name: 'Ahmad Fauzi', defaultProgramId: '', defaultCoa: 40201001 }
+  ];
+  const r = await classifySingle(tx(41, 'TRF DARI - AHMAD', 10000), ambiguousMaster);
+  assert.strictEqual(r.matchedLayer, 'UNAUTHORIZED_FALLBACK');
+  assert.strictEqual(r.evidence?.type, 'donor_conflict');
 });
 await ok("L4 keyword -> program COA (not unauthorized)", async () => {
   const r = await classifySingle(tx(5, "sedekah pembelian mushaf quran", 50000), M);
@@ -86,17 +100,17 @@ await ok("blind inflow -> 40201000 Unauthorized", async () => {
   assert.strictEqual(r.assignedCoa, 40201000);
 });
 await ok("alias-only label -> 40201001 Umum (ORG_ALIAS)", async () => {
-  const r = await classifySingle(tx(7, "Yayasan Amil Zakat Kebumen", 100000), M);
+  const r = await classifySingle(tx(7, M.companyAliases[0], 100000), M);
   assert.strictEqual(r.matchedLayer, "ORG_ALIAS");
   assert.strictEqual(r.assignedCoa, 40201001);
 });
 await ok("alias + non-keyword text -> COMPANY_UMUM / ORG_ALIAS", async () => {
-  const r = await classifySingle(tx(8, "Yayasan Amil Zakat Kebumen transfer dana", 100000), M);
+  const r = await classifySingle(tx(8, `${M.companyAliases[0]} transfer dana`, 100000), M);
   assert.strictEqual(r.matchedLayer, "ORG_ALIAS");
   assert.strictEqual(r.assignedCoa, 40201001);
 });
 await ok("alias + program keyword -> Layer 4 KEYWORD", async () => {
-  const r = await classifySingle(tx(81, "Yayasan Amil Zakat Kebumen Zakat Maal Bpk Fulan", 100000), M);
+  const r = await classifySingle(tx(81, `${M.companyAliases[0]} Zakat Maal Bpk Fulan`, 100000), M);
   assert.strictEqual(r.matchedLayer, "KEYWORD");
   assert.strictEqual(r.assignedCoa, 40100101);
 });
@@ -120,6 +134,58 @@ await ok("AI prompt includes company aliases and instructs allocation to Infak U
   assert.strictEqual(res[0].assignedCoa, 40201001);
   // "infaq" matches prog-sdq-subuh keyword → KEYWORD layer (company alias + keyword falls through to L4)
   assert.strictEqual(res[0].matchedLayer, "KEYWORD");
+});
+
+await ok("single and batch share exactly the same deterministic resolver", async () => {
+  const samples = [
+    tx(201, "Donasi untuk biaya sekolah", 100000),
+    tx(202, "TRF DARI - JAMAL", 100000),
+    tx(203, `${M.companyAliases[0]} WAQAF`, 100000),
+    tx(204, "sedekah mushaf quran", 100000),
+    tx(205, "biaya administrasi bank", 5000)
+  ];
+  const batch = await classifyBatch(samples, M);
+  for (let i = 0; i < samples.length; i++) {
+    const single = await classifySingle(samples[i], M);
+    assert.deepStrictEqual(single, batch[i]);
+  }
+});
+
+await ok("duplicate tail and equal keyword scores are quarantined deterministically", () => {
+  const conflictMaster = JSON.parse(JSON.stringify(M));
+  conflictMaster.programs = [
+    { id: "a", name: "A", coaCode: 40201001, tailCode: "123", keywords: ["program sama"], priority: 5 },
+    { id: "b", name: "B", coaCode: 40201002, tailCode: "123", keywords: ["program sama"], priority: 5 }
+  ];
+  const tail = classifyDeterministic(tx(210, "transfer", 100123), conflictMaster);
+  assert.strictEqual(tail.matchedLayer, "UNAUTHORIZED_FALLBACK");
+  assert.strictEqual(tail.evidence.type, "tail_conflict");
+  const keyword = classifyDeterministic(tx(211, "program sama", 100000), conflictMaster);
+  assert.strictEqual(keyword.matchedLayer, "UNAUTHORIZED_FALLBACK");
+  assert.strictEqual(keyword.evidence.type, "keyword_conflict");
+});
+
+await ok("explicit program priority resolves keyword overlap without array-order dependence", () => {
+  const priorityMaster = JSON.parse(JSON.stringify(M));
+  priorityMaster.programs = [
+    { id: "low", name: "Rendah", coaCode: 40201001, tailCode: "", keywords: ["peduli"], priority: 2 },
+    { id: "high", name: "Tinggi", coaCode: 40201002, tailCode: "", keywords: ["peduli"], priority: 8 }
+  ];
+  const result = classifyDeterministic(tx(212, "donasi peduli", 100000), priorityMaster);
+  assert.strictEqual(result.assignedProgramId, "high");
+  assert.strictEqual(result.evidence.type, "keyword");
+});
+
+await ok("approved layer order resolves tail then donor before keyword", () => {
+  const ordered = JSON.parse(JSON.stringify(M));
+  ordered.programs = [
+    { id: "tail", name: "Kode Ekor", coaCode: 40201002, tailCode: "321", keywords: [] },
+    { id: "routine", name: "Rutin", coaCode: 40201001, tailCode: "", keywords: [] },
+    { id: "keyword", name: "Kata Kunci", coaCode: 40202101, tailCode: "", keywords: ["bencana"] }
+  ];
+  ordered.donors = [{ id: "d", name: "Budi Santoso", defaultProgramId: "routine", defaultCoa: 40201001 }];
+  assert.strictEqual(classifyDeterministic(tx(213, "TRF DARI - BUDI SANTOSO bencana", 100321), ordered).assignedProgramId, "tail");
+  assert.strictEqual(classifyDeterministic(tx(214, "TRF DARI - BUDI SANTOSO bencana", 100000), ordered).assignedProgramId, "routine");
 });
 
 console.log("== UNIT: INPUT SANITIZERS & VALIDATION ==");
@@ -160,7 +226,7 @@ await ok("importMasterFromExcel imports PROGRAM-ONLY sheet without COA sheet", (
   store.resetToDefaults();
   const progRows = [
     { 'ID': 'prog-custom-1', 'NAMA PROGRAM': 'Peduli Yatim Piatu', 'COA': 40202101, 'KODE EKOR': '123', 'KEYWORDS': 'yatim;piatu' },
-    { 'ID': 'prog-custom-2', 'NAMA PROGRAM': 'Wakaf Sumur Air', 'COA': 40202102, 'KODE EKOR': '124', 'KEYWORDS': 'wakaf;sumur' }
+    { 'ID': 'prog-custom-2', 'NAMA PROGRAM': 'Wakaf Sumur Air', 'COA': 40202502, 'KODE EKOR': '124', 'KEYWORDS': 'wakaf;sumur' }
   ];
   const ws = XLSX.utils.json_to_sheet(progRows);
   const wb = XLSX.utils.book_new();
@@ -276,10 +342,270 @@ await ok("importMasterFromExcel correctly maps NO AKUN and NAMA AKUN without num
   assert.strictEqual(res.donorCount, 0);
   assert.ok(!m.donors.some(d => d.name === "Zakat Fitrah Ramadan"));
 });
+
+await ok("default preset has schema v2 and no orphan or duplicate references", () => {
+  store.resetToDefaults();
+  const m = store.getMaster();
+  assert.strictEqual(m.schemaVersion, 2);
+  assert.strictEqual(store.validateMasterData(m), true);
+  assert.strictEqual(new Set(m.coaList.map(c => c.code)).size, m.coaList.length);
+  assert.strictEqual(new Set(m.programs.map(p => p.id)).size, m.programs.length);
+  const tails = m.programs.map(p => p.tailCode).filter(Boolean);
+  assert.strictEqual(new Set(tails).size, tails.length);
+  assert.ok(m.donors.every(d => /^Donatur Contoh/.test(d.name)));
+});
+
+await ok("JSON roundtrip preserves program metadata and excludes AI credentials", () => {
+  store.resetToDefaults();
+  const m = store.getMaster();
+  m.programs[0].priority = 9;
+  m.programs[0].hiddenKeywords = ["varian rahasia"];
+  m.programs[0].metadata = { source: "manual" };
+  m.settings.aiApiKey = "must-not-leak";
+  store.updateMaster(m);
+  const json = store.exportConfigToJson();
+  assert.ok(!json.includes("must-not-leak"));
+  const preview = store.previewConfigImport(json, "replace");
+  assert.strictEqual(preview.schemaVersion, 2);
+  assert.ok(preview.changes && preview.changes.coa && preview.changes.programs);
+  assert.deepStrictEqual(Object.keys(preview.changes.coa).sort(), ['added', 'removed', 'updated']);
+  store.importConfigFromJson(json, "replace");
+  const restored = store.getMaster().programs[0];
+  assert.strictEqual(restored.priority, 9);
+  assert.deepStrictEqual(restored.hiddenKeywords, ["varian rahasia"]);
+  assert.deepStrictEqual(restored.metadata, { source: "manual" });
+});
+
+await ok("invalid JSON config is rejected atomically", () => {
+  store.resetToDefaults();
+  const before = store.exportConfigToJson();
+  const invalid = JSON.parse(before);
+  invalid.programs[0].coaCode = 99999999;
+  assert.throws(() => store.importConfigFromJson(JSON.stringify(invalid), "replace"), /tidak ada/);
+  assert.strictEqual(store.exportConfigToJson(), before);
+});
+
+await ok("COA rename migrates program, donor, and system references", () => {
+  store.resetToDefaults();
+  const before = store.getMaster();
+  const oldCode = before.settings.defaultBaselineCoa;
+  const idx = before.coaList.findIndex(c => c.code === oldCode);
+  store.updateCoa(idx, { ...before.coaList[idx], code: 49990001 });
+  const after = store.getMaster();
+  assert.strictEqual(after.settings.defaultBaselineCoa, 49990001);
+  assert.ok(!after.programs.some(p => p.coaCode === oldCode || p.parentCoaCode === oldCode));
+  assert.ok(!after.donors.some(d => d.defaultCoa === oldCode));
+  assert.strictEqual(store.validateMasterData(after), true);
+});
+
+await ok("referenced COA and program deletion is rejected", () => {
+  store.resetToDefaults();
+  const m = store.getMaster();
+  const program = m.programs.find(p => p.id === m.donors[0].defaultProgramId);
+  const coaIdx = m.coaList.findIndex(c => c.code === program.coaCode);
+  const programIdx = m.programs.findIndex(p => p.id === program.id);
+  assert.throws(() => store.deleteCoa(coaIdx), /masih dipakai|akun default sistem/);
+  assert.throws(() => store.deleteProgram(programIdx), /masih menjadi default/);
+});
+
+await ok("program ID and system account changes migrate dependent references", () => {
+  store.resetToDefaults();
+  let m = store.getMaster();
+  const oldProgramId = m.donors[0].defaultProgramId;
+  const idx = m.programs.findIndex(p => p.id === oldProgramId);
+  store.updateProgram(idx, { ...m.programs[idx], id: "program-diganti" });
+  assert.strictEqual(store.getMaster().donors[0].defaultProgramId, "program-diganti");
+  store.updateSystemAccounts({ unauthCode: 49000001, umumCode: 49000002, expenseCode: 69000001 });
+  m = store.getMaster();
+  assert.strictEqual(store.validateMasterData(m), true);
+  assert.ok(!m.programs.some(p => [40201000, 40201001, 60100008].includes(p.coaCode)));
+});
+
+await ok("legacy config migration preserves custom data while repairing old conflicts", () => {
+  store.resetToDefaults();
+  const legacy = store.getMaster();
+  delete legacy.schemaVersion;
+  legacy.programs[1].tailCode = legacy.programs[0].tailCode;
+  legacy.programs[1].coaCode = 99999999;
+  legacy.programs[1].metadata = { legacy: true };
+  legacy.donors[0].defaultProgramId = "program-yang-hilang";
+  const migrated = store.migrateMasterData(legacy);
+  assert.strictEqual(migrated.schemaVersion, 2);
+  assert.strictEqual(migrated.programs[1].tailCode, "");
+  assert.strictEqual(migrated.programs[1].coaCode, migrated.settings.defaultBaselineCoa);
+  assert.deepStrictEqual(migrated.programs[1].metadata, { legacy: true });
+  assert.strictEqual(migrated.donors[0].defaultProgramId, "");
+  assert.strictEqual(store.validateMasterData(migrated), true);
+});
+
+await ok("legacy migration repairs duplicate donor IDs", () => {
+  const candidate = store.getMaster();
+  candidate.donors = [
+    { ...candidate.donors[0], id: 'donor-duplikat' },
+    { ...candidate.donors[1], id: 'donor-duplikat' }
+  ];
+  const migrated = store.migrateMasterData(candidate);
+  assert.strictEqual(new Set(migrated.donors.map(donor => donor.id)).size, 2);
+});
+
+await ok("automatic config backup can be restored", () => {
+  store.resetToDefaults();
+  const originalOrg = store.getMaster().settings.orgName;
+  const imported = store.getMaster();
+  imported.settings.orgName = 'Organisasi Setelah Impor';
+  store.importConfigFromJson(JSON.stringify(imported), 'replace');
+  assert.strictEqual(store.hasConfigBackup(), true);
+  assert.strictEqual(store.getMaster().settings.orgName, 'Organisasi Setelah Impor');
+  store.restoreLastConfigBackup();
+  assert.strictEqual(store.getMaster().settings.orgName, originalOrg);
+});
+
+await ok("master store falls back safely when localStorage is blocked during initialization", () => {
+  const script = `
+    globalThis.localStorage = { getItem(){ throw new Error('blocked'); }, setItem(){ throw new Error('blocked'); }, removeItem(){ throw new Error('blocked'); } };
+    const store = await import('./js/store/master_store.js?blocked=' + Date.now());
+    console.log(JSON.stringify({ loaded: true, coa: store.getMaster().coaList.length }));
+  `;
+  const result = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '--eval', script], { cwd: process.cwd(), encoding: 'utf8' }).trim());
+  assert.strictEqual(result.loaded, true);
+  assert.ok(result.coa > 0);
+});
+
+await ok("failed localStorage writes do not mutate active master state", () => {
+  const script = `
+    const memory = new Map(); let fail = false;
+    globalThis.localStorage = {
+      getItem: key => memory.get(key) ?? null,
+      setItem: (key, value) => { if (fail) throw new Error('quota'); memory.set(key, value); },
+      removeItem: key => { if (fail) throw new Error('quota'); memory.delete(key); }
+    };
+    const store = await import('./js/store/master_store.js?quota=' + Date.now());
+    store.resetToDefaults(); const before = store.getMaster(); fail = true;
+    for (const operation of [
+      () => store.deleteDonor(0),
+      () => store.addAlias('ALIAS GAGAL'),
+      () => store.updateSystemAccounts({ unauthCode: 49000001, umumCode: 49000002, expenseCode: 69000001 })
+    ]) { try { operation(); } catch {} }
+    const after = store.getMaster();
+    console.log(JSON.stringify({
+      donors: after.donors.length === before.donors.length,
+      alias: !after.companyAliases.includes('ALIAS GAGAL'),
+      system: after.settings.defaultUnauthorizedCoa === before.settings.defaultUnauthorizedCoa
+    }));
+  `;
+  const result = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '--eval', script], { cwd: process.cwd(), encoding: 'utf8' }).trim());
+  assert.deepStrictEqual(result, { donors: true, alias: true, system: true });
+});
 store.resetToDefaults();
+
+console.log("== UNIT: BANK IMPORT & EXPORT ==");
+function workbookFromRows(rows, date1904 = false) {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "Mutasi");
+  if (date1904) wb.Workbook = { WBProps: { date1904: true } };
+  return XLSX.write(wb, { type: "array", bookType: "xlsx" });
+}
+
+await ok("bank parser preserves Excel calendar dates and detects the complete header row", async () => {
+  const input = workbookFromRows([
+    ["keterangan"],
+    ["tanggal", "keterangan", "nominal"],
+    [45000, "Donasi pangan", 100000]
+  ]);
+  const [row] = await adapter.parseBankStatement(input, "tanggal.xlsx");
+  assert.strictEqual(row.rawDate, XLSX.SSF.format("yyyy-mm-dd", 45000));
+  assert.strictEqual(row.rawLabel, "Donasi pangan");
+  assert.strictEqual(row.sourceName, "tanggal.xlsx");
+  assert.strictEqual(row.sourceRow, 3);
+});
+
+await ok("bank parser honors the Excel 1904 date system", async () => {
+  const input = workbookFromRows([
+    ["tanggal", "keterangan", "nominal"],
+    [1, "Donasi", 100000]
+  ], true);
+  const [row] = await adapter.parseBankStatement(input);
+  assert.strictEqual(row.rawDate, "1904-01-02");
+});
+
+await ok("bank parser supports Indonesian and international formatted amounts", async () => {
+  const input = workbookFromRows([
+    ["tanggal", "keterangan", "nominal"],
+    ["2026-09-01", "Indonesia", "Rp 100.000"],
+    ["2026-09-02", "International", "1,234.56"],
+    ["2026-09-03", "Decimal Indonesia", "1.234,56"]
+  ]);
+  const rows = await adapter.parseBankStatement(input);
+  assert.deepStrictEqual(rows.map(row => row.rawAmount), [100000, 1234.56, 1234.56]);
+});
+
+await ok("separate imports receive unique transaction IDs", async () => {
+  const input = workbookFromRows([["tanggal", "keterangan", "nominal"], ["2026-09-01", "Donasi", 100000]]);
+  const [first] = await adapter.parseBankStatement(input);
+  const [second] = await adapter.parseBankStatement(input);
+  assert.notStrictEqual(first.id, second.id);
+});
+
+await ok("journal export uses the corrected account name and neutralizes formulas", () => {
+  const csv = adapter.exportOdooCsv([{
+    rawDate: "2026-09-01", assignedCoa: 40201001,
+    assignedCoaName: "Infak Umum", rawAmount: 100000, rawLabel: "=1+1"
+  }]);
+  assert.ok(csv.includes(";40201001;Infak Umum;100000;'=1+1"));
+});
+
+await ok("replace upload validates the new file before replacing the active session", () => {
+  const appSource = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
+  const handler = appSource.match(/btn-replace-file'[\s\S]*?btn-merge-file'/)?.[0] || '';
+  assert.ok(handler.includes('processFile(_pendingFile, false, _pendingParsedRows)'));
+  assert.ok(!handler.includes('clearRows()'));
+});
+
+await ok("5-layer rescan preserves the production AI cache", () => {
+  const appSource = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
+  const rescan = appSource.match(/async function execute5LayerRescan[\s\S]*?\/\/ ─── EXPORT/)?.[0] || '';
+  assert.ok(rescan.length > 0, 'rescan function source not found');
+  assert.ok(!rescan.includes('clearAiCache('));
+});
 
 console.log("== UNIT: SESSION STORE ==");
 const sessionStore = await import("../js/store/session_store.js");
+await ok("sessionStore merge removes normalized duplicates within and across files", () => {
+  sessionStore.setRows([{ id: "old", transactionDate: "2026-09-01", rawLabel: " Donasi  Pangan ", rawAmount: 100000 }]);
+  const added = sessionStore.mergeRows([
+    { id: "new-1", transactionDate: "2026-09-01", rawLabel: "donasi pangan", rawAmount: 100000 },
+    { id: "new-2", transactionDate: "2026-09-02", rawLabel: "Wakaf", rawAmount: 200000 },
+    { id: "new-3", transactionDate: "2026-09-02", rawLabel: " WAKAF ", rawAmount: 200000 }
+  ]);
+  assert.strictEqual(added, 1);
+  assert.strictEqual(sessionStore.getRowCount(), 2);
+  sessionStore.clearRows();
+});
+
+await ok("sessionStore previews duplicate impact without mutating the active session", () => {
+  sessionStore.setRows([{ id: 'existing', transactionDate: '2026-09-01', rawLabel: 'Donasi Pangan', rawAmount: 100000 }]);
+  const before = JSON.stringify(sessionStore.getRows());
+  const preview = sessionStore.previewMergeRows([
+    { id: 'same', transactionDate: '2026-09-01', rawLabel: ' donasi  pangan ', rawAmount: 100000 },
+    { id: 'new', transactionDate: '2026-09-02', rawLabel: 'Donasi Pendidikan', rawAmount: 200000 },
+    { id: 'new-duplicate', transactionDate: '2026-09-02', rawLabel: 'Donasi Pendidikan', rawAmount: 200000 }
+  ]);
+  assert.deepStrictEqual(preview, { incoming: 3, added: 1, duplicates: 2, projectedTotal: 2 });
+  assert.strictEqual(JSON.stringify(sessionStore.getRows()), before);
+  sessionStore.clearRows();
+});
+
+await ok("sessionStore repairs duplicate IDs so one edit affects one row", () => {
+  sessionStore.setRows([
+    { id: "same", transactionDate: "2026-09-01", rawLabel: "A", rawAmount: 1 },
+    { id: "same", transactionDate: "2026-09-02", rawLabel: "B", rawAmount: 2 }
+  ]);
+  const ids = sessionStore.getRows().map(row => row.id);
+  assert.strictEqual(new Set(ids).size, 2);
+  sessionStore.updateRow(ids[0], { assignedCoa: 40201001 });
+  assert.strictEqual(sessionStore.getRows().filter(row => row.assignedCoa === 40201001).length, 1);
+  sessionStore.clearRows();
+});
 await ok("sessionStore deleteRows and restoreRows", () => {
   sessionStore.setRows([
     { id: "tx-1", transactionDate: "2025-08-01", rawAmount: 100000, assignedCoa: 40201001 },
@@ -334,6 +660,29 @@ await ok("sessionStore category and period filtering scopes getFilteredSorted co
 
   // Cleanup
   sessionStore.setFilter({ filterCategory: "ALL", periodFilter: "ALL", dateFrom: null, dateTo: null });
+  sessionStore.clearRows();
+});
+
+await ok("session filters, stats, and category totals do not depend on default COA numbers", () => {
+  const customCoas = [
+    { code: 710001, name: "Karantina Custom", category: "INFAK / SEDEKAH" },
+    { code: 710002, name: "Zakat Custom", category: "ZAKAT" },
+    { code: 710003, name: "Beban Custom", category: "BEBAN" }
+  ];
+  sessionStore.setRows([
+    { id: "custom-u", transactionDate: "2026-09-01", rawAmount: 100, assignedCoa: 710001, matchedLayer: "UNAUTHORIZED_FALLBACK" },
+    { id: "custom-z", transactionDate: "2026-09-01", rawAmount: 200, assignedCoa: 710002, matchedLayer: "KEYWORD" },
+    { id: "custom-e", transactionDate: "2026-09-01", rawAmount: -50, assignedCoa: 710003, matchedLayer: "EXPENSE", isExpense: true }
+  ]);
+  sessionStore.setFilter({ filterCategory: "UNAUTHORIZED", periodFilter: "ALL" });
+  assert.deepStrictEqual(sessionStore.getFilteredSorted().map(r => r.id), ["custom-u"]);
+  sessionStore.setFilter({ filterCategory: "EXPENSE", periodFilter: "ALL" });
+  assert.deepStrictEqual(sessionStore.getFilteredSorted().map(r => r.id), ["custom-e"]);
+  assert.strictEqual(sessionStore.getStats().unauthorized, 1);
+  assert.deepStrictEqual(sessionStore.getCategoryTotals(customCoas), [
+    { name: "Zakat", total: 200 }
+  ]);
+  sessionStore.setFilter({ filterCategory: "ALL", periodFilter: "ALL" });
   sessionStore.clearRows();
 });
 
@@ -487,6 +836,173 @@ await ok("5-layer rescan guardrail protects manual overrides and already valid r
   assert.strictEqual(promotedRow.newName, "Infak Kebencanaan & Kemanusiaan");
 
   sessionStore.clearRows();
+  store.resetToDefaults();
+});
+
+console.log("== UNIT: AI HARNESS ==");
+const AI_PROGRAMS = [{
+  id: 'prog-test',
+  name: 'Program Test',
+  coaCode: 40202101,
+  keywords: ['program test'],
+  description: 'Program khusus untuk pengujian'
+}];
+const AI_CONTEXT = {
+  defaultBaselineCoa: 40201001,
+  defaultUnauthorizedCoa: 40201000,
+  companyAliases: ['Yayasan Contoh'],
+  donors: [{ name: 'NAMA DONATUR RAHASIA' }]
+};
+const AI_SETTINGS = { aiMode: 'OPENAI', aiApiKey: 'test-only-key', confidenceThreshold: 0.80 };
+
+await ok("AI cache is stable for the same fingerprint and excludes donor data from prompts", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  let requestBody = '';
+  aiMatcher.clearAiCache();
+  aiMatcher.resetCircuitBreaker();
+  globalThis.fetch = async (_url, options) => {
+    calls++;
+    requestBody = String(options.body || '');
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ output_text: '{"decisions":[{"item_id":"ai-cache","program_id":"prog-test","confidence":0.91,"reason":"cocok"}]}' })
+    };
+  };
+  try {
+    const item = [{ id: 'ai-cache', cleanedLabel: 'transfer program test yang tidak deterministik' }];
+    const first = await aiMatcher.classifySemanticBatchClient(item, AI_PROGRAMS, AI_SETTINGS, false, AI_CONTEXT);
+    const second = await aiMatcher.classifySemanticBatchClient(item, AI_PROGRAMS, AI_SETTINGS, false, AI_CONTEXT);
+    assert.strictEqual(calls, 1);
+    assert.deepStrictEqual(second, first);
+    assert.ok(!requestBody.includes('NAMA DONATUR RAHASIA'));
+    assert.ok(requestBody.includes('gpt-5.6-luna'));
+  } finally {
+    globalThis.fetch = originalFetch;
+    aiMatcher.clearAiCache();
+    aiMatcher.resetCircuitBreaker();
+  }
+});
+
+await ok("AI cache fingerprint changes when the master context changes", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  aiMatcher.clearAiCache();
+  aiMatcher.resetCircuitBreaker();
+  globalThis.fetch = async () => {
+    calls++;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ output_text: '{"decisions":[{"item_id":"ai-context","program_id":null,"confidence":0.9,"reason":"umum"}]}' })
+    };
+  };
+  try {
+    const item = [{ id: 'ai-context', cleanedLabel: 'transfer umum tanpa keyword lokal' }];
+    await aiMatcher.classifySemanticBatchClient(item, AI_PROGRAMS, AI_SETTINGS, false, AI_CONTEXT);
+    await aiMatcher.classifySemanticBatchClient(item, AI_PROGRAMS, AI_SETTINGS, false, { ...AI_CONTEXT, companyAliases: ['Alias Berubah'] });
+    assert.strictEqual(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    aiMatcher.clearAiCache();
+    aiMatcher.resetCircuitBreaker();
+  }
+});
+
+await ok("classifier derives AI account locally from an accepted program ID", async () => {
+  const originalFetch = globalThis.fetch;
+  aiMatcher.clearAiCache();
+  aiMatcher.resetCircuitBreaker();
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ output_text: '{"decisions":[{"item_id":"ai-integration","program_id":"prog-test","confidence":0.92,"reason":"program sesuai"}]}' })
+  });
+  try {
+    const master = JSON.parse(JSON.stringify(M));
+    master.programs = AI_PROGRAMS;
+    master.settings = { ...master.settings, ...AI_SETTINGS };
+    const result = await classifySingle(tx('ai-integration', 'semantic khusus tanpa keyword lokal', 100000), master);
+    assert.strictEqual(result.matchedLayer, 'AI_SEMANTIC');
+    assert.strictEqual(result.assignedProgramId, 'prog-test');
+    assert.strictEqual(result.assignedCoa, 40202101);
+  } finally {
+    globalThis.fetch = originalFetch;
+    aiMatcher.clearAiCache();
+    aiMatcher.resetCircuitBreaker();
+  }
+});
+
+await ok("AI isolates labels and rejects unknown IDs, direct COA, bad confidence, and wrong identity", async () => {
+  const originalFetch = globalThis.fetch;
+  let call = 0;
+  const requestBodies = [];
+  aiMatcher.clearAiCache();
+  aiMatcher.resetCircuitBreaker();
+  globalThis.fetch = async (_url, options) => {
+    requestBodies.push(String(options.body || ''));
+    call++;
+    const decisions = [
+      { item_id: 'ai-1', program_id: 'program-palsu', confidence: 0.99, reason: 'palsu' },
+      { item_id: 'ai-2', program_id: null, no_akun: 40202101, confidence: 0.99, reason: 'coa langsung' },
+      { item_id: 'ai-3', program_id: null, confidence: 99, reason: 'manipulatif' },
+      { item_id: 'ai-salah', program_id: 'prog-test', confidence: 0.95, reason: 'identitas salah' }
+    ];
+    return { ok: true, status: 200, json: async () => ({ output_text: JSON.stringify({ decisions: [decisions[call - 1]] }) }) };
+  };
+  try {
+    const items = [1, 2, 3, 4].map(idx => ({ id: `ai-${idx}`, cleanedLabel: `label asing ${idx}` }));
+    const result = await aiMatcher.classifySemanticBatchClient(items, AI_PROGRAMS, AI_SETTINGS, true, AI_CONTEXT);
+    assert.strictEqual(result[0].status, 'guardrail_rejected');
+    assert.strictEqual(result[1].status, 'invalid_response');
+    assert.strictEqual(result[2].status, 'guardrail_rejected');
+    assert.strictEqual(result[3].status, 'guardrail_rejected');
+    assert.ok(result.every(entry => entry.confidence === 0));
+    assert.strictEqual(call, 4);
+    requestBodies.forEach((body, index) => {
+      assert.ok(body.includes(`label asing ${index + 1}`));
+      assert.ok(!body.includes(`label asing ${index === 0 ? 2 : 1}`));
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    aiMatcher.resetCircuitBreaker();
+  }
+});
+
+await ok("broken AI JSON fails closed and is not cached", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  aiMatcher.clearAiCache();
+  aiMatcher.resetCircuitBreaker();
+  globalThis.fetch = async () => {
+    calls++;
+    const output_text = calls === 1
+      ? '```json\n[{broken]\n```'
+      : '{"decisions":[{"item_id":"broken","program_id":null,"confidence":0,"reason":"tidak cocok"}]}';
+    return { ok: true, status: 200, json: async () => ({ output_text }) };
+  };
+  try {
+    const item = [{ id: 'broken', cleanedLabel: 'label rusak' }];
+    const first = await aiMatcher.classifySemanticBatchClient(item, AI_PROGRAMS, AI_SETTINGS, false, AI_CONTEXT);
+    const second = await aiMatcher.classifySemanticBatchClient(item, AI_PROGRAMS, AI_SETTINGS, false, AI_CONTEXT);
+    assert.strictEqual(first[0].status, 'invalid_response');
+    assert.strictEqual(second[0].status, 'no_match');
+    assert.strictEqual(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    aiMatcher.resetCircuitBreaker();
+  }
+});
+
+await ok("AI provider and threshold normalization stays conservative", () => {
+  store.resetToDefaults();
+  store.updateMaster({ settings: { ...store.getMaster().settings, aiMode: 'OPENROUTER', confidenceThreshold: 0.2 } });
+  assert.strictEqual(store.getMaster().settings.aiMode, 'OFF');
+  assert.strictEqual(store.getMaster().settings.confidenceThreshold, 0.80);
+  assert.strictEqual(aiMatcher.resolveAiModel({ aiMode: 'OPENAI' }), 'gpt-5.6-luna');
+  assert.strictEqual(aiMatcher.resolveAiModel({ aiMode: 'GEMINI' }), 'gemini-3.5-flash-lite');
+  assert.strictEqual(aiMatcher.resolveAiModel({ aiMode: 'LOCAL_OLLAMA' }), 'qwen2.5:3b-instruct');
   store.resetToDefaults();
 });
 

@@ -1228,6 +1228,7 @@ body {
 .ms-auto { margin-left: auto; }
 .mt-3 { margin-top: 1rem; }
 .d-flex { display: flex; }
+.flex-wrap { flex-wrap: wrap; }
 .gap-2 { gap: 0.5rem; }
 
 .date-range-row {
@@ -1706,6 +1707,25 @@ html {
 ::-webkit-scrollbar-track { background: var(--surface); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+::selection {
+    background: rgba(56, 189, 248, 0.3);
+    color: var(--text);
+}
+
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
 
 /* ─── RESPONSIVE: BELOW DESKTOP ─────────────────────────────────────────────── */
 

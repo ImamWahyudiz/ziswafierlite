@@ -258,6 +258,77 @@
     animation: slideInRight 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.config-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    margin-bottom: 1rem;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--border);
+}
+.config-summary > div {
+    min-width: 0;
+    padding: 0.8rem 0.9rem;
+    background: var(--surface2);
+}
+.config-summary span,
+.config-summary strong {
+    display: block;
+    overflow-wrap: anywhere;
+}
+.config-summary strong.text-emerald { color: var(--emerald); }
+.config-summary strong.text-warning { color: var(--warning); }
+.config-summary span {
+    margin-bottom: 0.2rem;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.config-summary strong {
+    color: var(--text);
+    font-size: 0.84rem;
+}
+.config-summary > p {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 0.7rem 0.9rem;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 0.78rem;
+    line-height: 1.5;
+}
+@media (max-width: 640px) {
+    .config-summary { grid-template-columns: 1fr; }
+}
+
+.import-preview {
+    display: grid;
+    gap: 0.45rem;
+    margin-bottom: 1rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface2);
+}
+.import-preview p {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.82rem;
+}
+.import-preview strong {
+    max-width: 60%;
+    overflow-wrap: anywhere;
+    color: var(--text);
+    text-align: right;
+}
+
 @keyframes slideInRight {
     from { opacity: 0; transform: translateX(100%); }
     to   { opacity: 1; transform: translateX(0); }

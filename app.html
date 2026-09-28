@@ -56,8 +56,8 @@
     <link rel="canonical" href="https://ziswafierlite.vercel.app/app">
     <meta name="robots" content="index, follow">
     
-    <!-- Content Security Policy (Jaminan 100% Keamanan & Tanpa Transmisi Server) -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' https://cdn.jsdelivr.net http://localhost:11434 https://generativelanguage.googleapis.com https://api.openai.com https://openrouter.ai;">
+    <!-- Content Security Policy: membatasi koneksi ke aset dan provider AI yang didukung -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' https://cdn.jsdelivr.net http://localhost:11434 https://generativelanguage.googleapis.com https://api.openai.com;">
 
     <!-- Primary Favicons & Icons -->
     <link rel="icon" type="image/png" href="./logo.png">
@@ -392,6 +392,7 @@
                 <span class="panel-hint">Layer 5: pencocokan semantik AI untuk mutasi yang belum terdeteksi oleh Layer 0–4</span>
                 <button class="btn btn-ghost btn-sm ms-auto" data-tutorial="ai" title="Cara kerja tab ini"><i class="fa-solid fa-circle-question"></i> Cara Kerja</button>
             </div>
+            <div class="config-summary" id="ai-config-summary" aria-live="polite"></div>
             <div class="settings-card">
                 <div class="form-group">
                     <label>AI Provider / Mode</label>
@@ -407,11 +408,11 @@
                     </div>
                 </div>
                 <div class="form-group" id="group-ai-model">
-                    <label>Nama Model AI <span class="text-muted text-xs">(opsional, default: gemini-3.5-flash / gpt-4o-mini)</span></label>
-                    <input type="text" class="form-control" id="ai-model-name" placeholder="gemini-3.5-flash">
+                    <label>Nama Model AI <span class="text-muted text-xs">(opsional, default: gemini-3.5-flash-lite / gpt-5.6-luna)</span></label>
+                    <input type="text" class="form-control" id="ai-model-name" placeholder="gemini-3.5-flash-lite">
                 </div>
                 <div class="form-group" id="group-api-key">
-                    <label>API Key <span class="text-muted text-xs">(disimpan aman di sesi browser Anda, tidak persist ke database)</span></label>
+                    <label>API Key <span class="text-muted text-xs">(disimpan di browser lokal dan tidak disertakan dalam backup)</span></label>
                     <input type="password" class="form-control" id="ai-api-key" placeholder="AIzaSy... atau sk-...">
                 </div>
                 <div class="form-group" id="group-ollama-endpoint">
@@ -419,8 +420,8 @@
                     <input type="text" class="form-control" id="ollama-endpoint" placeholder="http://localhost:11434/api/chat">
                 </div>
                 <div class="form-group">
-                    <label>Confidence Threshold <span class="text-muted text-xs">(min 0.70 untuk diterima AI)</span></label>
-                    <input type="number" class="form-control" id="confidence-threshold" min="0" max="1" step="0.05" value="0.70">
+                    <label>Confidence Threshold <span class="text-muted text-xs">(min 0.80 untuk diterima AI)</span></label>
+                    <input type="number" class="form-control" id="confidence-threshold" min="0.80" max="1" step="0.05" value="0.80">
                 </div>
                 <div class="form-group">
                     <label>Nama Lembaga <span class="text-muted text-xs">(untuk identitas amil & konteks AI)</span></label>
@@ -458,6 +459,12 @@
                             <input type="file" id="input-import-json" accept=".json" hidden>
                         </label>
                     </div>
+                    <div class="backup-item">
+                        <div class="backup-label">Pulihkan konfigurasi sebelum impor JSON terakhir</div>
+                        <button class="btn btn-ghost btn-sm" id="btn-restore-auto-backup" title="Pulihkan backup otomatis terakhir" disabled>
+                            <i class="fa-solid fa-clock-rotate-left"></i> <span class="btn-text">Pulihkan Backup Otomatis</span>
+                        </button>
+                    </div>
                     <div class="backup-item backup-item-danger">
                         <div class="backup-label">Reset semua ke data default bawaan</div>
                         <button class="btn btn-danger btn-sm" id="btn-reset-defaults" title="Reset semua data ke konfigurasi bawaan">
@@ -494,7 +501,7 @@
                     <span class="progress-label" id="progress-label">Memproses...</span>
                     <span class="progress-pct" id="progress-pct">0%</span>
                 </div>
-                <div class="progress-bar">
+                <div class="progress-bar" id="upload-progress-bar" role="progressbar" aria-labelledby="progress-label" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
                     <div class="progress-fill" id="progress-fill"></div>
                 </div>
                 <div class="layer-counters" id="layer-counters">
@@ -994,6 +1001,13 @@
         </div>
         <div class="modal-body">
             <p class="text-muted mb-3">Sudah ada <b id="rm-existing-count">0</b> transaksi di sesi ini. Mau diapakan dengan file baru?</p>
+            <div class="import-preview" aria-label="Pratinjau penggabungan transaksi">
+                <p><span>Berkas</span><strong id="rm-file-name">—</strong></p>
+                <p><span>Baris masuk</span><strong id="rm-incoming-count">0</strong></p>
+                <p><span>Baris baru</span><strong id="rm-new-count">0</strong></p>
+                <p><span>Duplikat dilewati</span><strong id="rm-duplicate-count">0</strong></p>
+                <p><span>Total setelah gabung</span><strong id="rm-projected-count">0</strong></p>
+            </div>
             <div class="modal-footer-actions">
                 <button class="btn btn-ghost" data-close="modal-replace-merge">Batal</button>
                 <button class="btn btn-ghost" id="btn-merge-file">
@@ -1008,10 +1022,10 @@
 </div>
 
 <!-- Modal: Rescan 5-Layer Live Progress -->
-<div class="modal-overlay hidden" id="modal-rescan-progress" style="backdrop-filter: blur(8px); z-index: 9999;">
+<div class="modal-overlay hidden" id="modal-rescan-progress" role="dialog" aria-modal="true" aria-labelledby="rescan-progress-title" style="backdrop-filter: blur(8px); z-index: 9999;">
     <div class="modal-card glass" style="max-width:540px;">
         <div class="modal-head">
-            <h2><i class="fa-solid fa-arrows-rotate fa-spin text-accent"></i> Memindai Ulang 5-Layer...</h2>
+            <h2 id="rescan-progress-title"><i class="fa-solid fa-arrows-rotate fa-spin text-accent"></i> Memindai Ulang 5-Layer...</h2>
         </div>
         <div class="modal-body" style="padding-top: 0.5rem;">
             <div class="progress-section" style="margin: 0; padding: 0;">
@@ -1019,7 +1033,7 @@
                     <span class="progress-label" id="rescan-progress-label">Memproses 0 / 0</span>
                     <span class="progress-pct font-bold text-accent" id="rescan-progress-pct">0%</span>
                 </div>
-                <div class="progress-bar mb-3">
+                <div class="progress-bar mb-3" id="rescan-progress-bar" role="progressbar" aria-labelledby="rescan-progress-label" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
                     <div class="progress-fill" id="rescan-progress-fill" style="width: 0%;"></div>
                 </div>
                 <div class="layer-counters" id="rescan-layer-counters">
@@ -1059,7 +1073,7 @@
 </div>
 
 <!-- Toast container -->
-<div class="toast-root" id="toast-root"></div>
+<div class="toast-root" id="toast-root" role="status" aria-live="polite" aria-atomic="true"></div>
 <div id="js-tooltip"></div>
 
 <script src="./js/vendor/xlsx.full.min.js"></script>

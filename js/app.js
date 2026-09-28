@@ -1,6 +1,6 @@
 import {
-  getMaster, updateMaster, resetToDefaults, subscribe as subscribeMaster,
-  exportConfigToJson, importConfigFromJson, importMasterFromExcel, getSystemCodes, updateSystemAccounts,
+  getMaster, updateMaster, resetToDefaults, subscribe as subscribeMaster, isMasterStoragePersistent,
+  exportConfigToJson, importConfigFromJson, previewConfigImport, hasConfigBackup, restoreLastConfigBackup, importMasterFromExcel, getSystemCodes, updateSystemAccounts,
   addCoa, updateCoa, deleteCoa, batchDeleteCoa,
   addProgram, updateProgram, deleteProgram, batchDeletePrograms,
   addDonor, updateDonor, deleteDonor, batchDeleteDonors,
@@ -8,10 +8,10 @@ import {
 } from "./store/master_store.js";
 import { sanitizeInputText, sanitizeSlug, sanitizePhone, sanitizeCoaCode } from "./engine/sanitizer.js";
 import { classifyBatch } from "./engine/classifier.js";
-import { testAIConnection, clearAiCache } from "./engine/ai_matcher.js";
+import { testAIConnection, clearAiCache, resolveAiModel } from "./engine/ai_matcher.js";
 import { parseBankStatement, exportOdooExcel, exportOdooCsv } from "./services/excel_adapter.js";
 import {
-  getRows, getRowCount, setRows, mergeRows, updateRow, bulkUpdateRows, bulkPatchRows, deleteRows, restoreRows, clearRows,
+  getRows, getRowCount, setRows, mergeRows, previewMergeRows, updateRow, bulkUpdateRows, bulkPatchRows, deleteRows, restoreRows, isSessionStoragePersistent,
   getFilteredSorted, getPagedRows, getStats, getFilter, setFilter, getSortState, setSort, getRowsByPeriod,
   getPage, setPage, getProgramTotals, getCategoryTotals, MAX_SESSION_ROWS
 } from "./store/session_store.js";
@@ -19,9 +19,12 @@ import {
 // ─── Utils ────────────────────────────────────────────────────────────────────
 
 function esc(text) {
-  const d = document.createElement('div');
-  d.textContent = String(text ?? '');
-  return d.innerHTML;
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function fmtRp(amount) {
@@ -40,6 +43,21 @@ function normPhone(raw) {
   return p;
 }
 
+function safeStorageGet(key, fallback = null) {
+  try { return localStorage.getItem(key) ?? fallback; }
+  catch { return fallback; }
+}
+
+function safeStorageSet(key, value, { silent = false } = {}) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (error) {
+    if (!silent) showToast(`Preferensi tidak dapat disimpan di browser: ${error?.message || 'penyimpanan tidak tersedia'}`, 'error');
+    return false;
+  }
+}
+
 function showToast(msg, type = 'info') {
   const root = document.getElementById('toast-root');
   const t = document.createElement('div');
@@ -49,21 +67,44 @@ function showToast(msg, type = 'info') {
   setTimeout(() => { t.classList.add('fadeout'); setTimeout(() => t.remove(), 300); }, 3500);
 }
 
-function openModal(id) { 
+const _modalReturnFocus = new WeakMap();
+
+function getFocusable(container) {
+  return [...container.querySelectorAll('button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+    .filter(el => !el.closest('.hidden'));
+}
+
+function openModal(id) {
   const m = document.getElementById(id);
   if (m) {
+    _modalReturnFocus.set(m, document.activeElement);
+    m.setAttribute('role', 'dialog');
+    m.setAttribute('aria-modal', 'true');
+    const title = m.querySelector('.modal-head h2');
+    if (title) {
+      if (!title.id) title.id = `${id}-title`;
+      m.setAttribute('aria-labelledby', title.id);
+    }
     m.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
+    const focusTarget = getFocusable(m)[0] || m.querySelector('.modal-card');
+    if (focusTarget) {
+      if (!focusTarget.hasAttribute('tabindex') && focusTarget.classList.contains('modal-card')) focusTarget.tabIndex = -1;
+      requestAnimationFrame(() => focusTarget.focus());
+    }
   }
 }
 
-function closeModal(id) { 
+function closeModal(id) {
   const m = document.getElementById(id);
   if (m) {
     m.classList.add('hidden');
     if (!document.querySelector('.modal-overlay:not(.hidden)')) {
       document.body.style.overflow = '';
     }
+    const returnTarget = _modalReturnFocus.get(m);
+    if (returnTarget?.isConnected) returnTarget.focus();
+    _modalReturnFocus.delete(m);
   }
 }
 
@@ -71,6 +112,32 @@ document.addEventListener('click', e => {
   const btn = e.target.closest('[data-close]');
   if (btn) closeModal(btn.dataset.close);
   // Do not close modals on backdrop overlay click or scroll to prevent accidental loss of user input
+});
+
+document.querySelectorAll('.modal-close').forEach(button => {
+  if (!button.getAttribute('aria-label')) button.setAttribute('aria-label', 'Tutup dialog');
+});
+
+document.addEventListener('keydown', event => {
+  const modal = [...document.querySelectorAll('.modal-overlay:not(.hidden)')].at(-1);
+  if (!modal) return;
+  if (event.key === 'Escape' && modal.id !== 'modal-rescan-progress') {
+    event.preventDefault();
+    closeModal(modal.id);
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = getFocusable(modal);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
 });
 
 // ─── JS Tooltip ───────────────────────────────────────────────────────────────
@@ -186,7 +253,7 @@ document.getElementById('btn-theme-toggle').addEventListener('click', () => {
 });
 
 try {
-  const currentTheme = document.documentElement.getAttribute('data-theme') || localStorage.getItem('ziswaf_theme') || 'dark';
+  const currentTheme = document.documentElement.getAttribute('data-theme') || safeStorageGet('ziswaf_theme', 'dark');
   applyTheme(currentTheme);
 } catch (e) {}
 
@@ -214,6 +281,13 @@ document.getElementById('config-subtabs').addEventListener('click', e => {
 function renderConfigPage() {
   const currentY = window.scrollY;
   const m = getMaster();
+  const retain = (selection, validKeys) => {
+    for (const key of selection) if (!validKeys.has(key)) selection.delete(key);
+  };
+  retain(_selectedCoa, new Set(m.coaList.map(item => String(item.code))));
+  retain(_selectedPrograms, new Set(m.programs.map(item => item.id)));
+  retain(_selectedDonors, new Set(m.donors.map(item => item.id)));
+  retain(_selectedAliases, new Set((m.companyAliases || []).map(item => item.toLocaleLowerCase('id-ID'))));
   document.getElementById('count-coa').textContent = m.coaList.length;
   document.getElementById('count-program').textContent = m.programs.length;
   document.getElementById('count-donor').textContent = m.donors.length;
@@ -224,6 +298,8 @@ function renderConfigPage() {
   renderAliasList(m);
   renderAiSettings(m);
   renderSystemCoaSettings(m);
+  const restoreBackupButton = document.getElementById('btn-restore-auto-backup');
+  if (restoreBackupButton) restoreBackupButton.disabled = !hasConfigBackup();
   requestAnimationFrame(() => {
     window.scrollTo({ top: currentY, behavior: 'instant' });
   });
@@ -327,9 +403,10 @@ function renderCoaTable(m) {
     } else if (c.code === sys.expense) {
       sysBadge = ` <span class="badge badge-expense text-xs ms-1" title="Akun Uang Keluar (Beban Operasional)">Uang Keluar</span>`;
     }
-    const isChecked = _selectedCoa.has(i);
+    const selectionKey = String(c.code);
+    const isChecked = _selectedCoa.has(selectionKey);
     return `<tr>
-      <td><input type="checkbox" class="coa-row-checkbox" data-idx="${i}" ${isChecked ? 'checked' : ''}></td>
+      <td><input type="checkbox" class="coa-row-checkbox" data-key="${esc(selectionKey)}" aria-label="Pilih COA ${esc(c.code)}" ${isChecked ? 'checked' : ''}></td>
       <td><code>${esc(c.code)}</code></td>
       <td>${esc(c.name)}${sysBadge}</td>
       <td><span class="badge-cat">${esc(c.category || 'UMUM')}</span></td>
@@ -346,7 +423,7 @@ function renderCoaTable(m) {
 document.getElementById('coa-select-all')?.addEventListener('change', e => {
   const m = getMaster();
   if (e.target.checked) {
-    m.coaList.forEach((_, i) => _selectedCoa.add(i));
+    m.coaList.forEach(c => _selectedCoa.add(String(c.code)));
   } else {
     _selectedCoa.clear();
   }
@@ -359,11 +436,11 @@ document.getElementById('coa-select-all')?.addEventListener('change', e => {
 document.getElementById('tbody-coa')?.addEventListener('change', e => {
   const cb = e.target.closest('.coa-row-checkbox');
   if (!cb) return;
-  const idx = parseInt(cb.dataset.idx, 10);
+  const key = cb.dataset.key;
   if (cb.checked) {
-    _selectedCoa.add(idx);
+    _selectedCoa.add(key);
   } else {
-    _selectedCoa.delete(idx);
+    _selectedCoa.delete(key);
   }
   updateCoaSelectionUI();
 });
@@ -373,7 +450,9 @@ document.getElementById('btn-batch-delete-coa')?.addEventListener('click', () =>
   const count = _selectedCoa.size;
   if (!confirm(`Hapus ${count} akun COA terpilih?`)) return;
   try {
-    const deleted = batchDeleteCoa(Array.from(_selectedCoa));
+    const current = getMaster().coaList;
+    const indices = current.map((item, index) => _selectedCoa.has(String(item.code)) ? index : -1).filter(index => index >= 0);
+    const deleted = batchDeleteCoa(indices);
     _selectedCoa.clear();
     renderConfigPage();
     showToast(`${deleted} akun COA berhasil dihapus`, 'success');
@@ -414,7 +493,7 @@ document.getElementById('tbody-coa').addEventListener('click', e => {
     if (confirm(`Hapus COA ${c.code} - ${c.name}?`)) {
       try {
         deleteCoa(idx);
-        _selectedCoa.delete(idx);
+        _selectedCoa.delete(String(c.code));
         renderConfigPage();
         showToast('COA berhasil dihapus', 'success');
       } catch (err) {
@@ -448,11 +527,11 @@ document.getElementById('btn-save-coa').addEventListener('click', () => {
 // ─── PROGRAM ──────────────────────────────────────────────────────────────────
 function renderProgramTable(m) {
   document.getElementById('tbody-program').innerHTML = m.programs.map((p, i) => {
-    const isChecked = _selectedPrograms.has(i);
+    const isChecked = _selectedPrograms.has(p.id);
     const hiddenCount = (p.hiddenKeywords || []).length;
     const hiddenBadge = hiddenCount > 0 ? ' <span class="badge badge-ai text-xs" title="Varian AI (' + hiddenCount + ')">+' + hiddenCount + '</span>' : '';
     return `<tr>
-      <td><input type="checkbox" class="program-row-checkbox" data-idx="${i}" ${isChecked ? 'checked' : ''}></td>
+      <td><input type="checkbox" class="program-row-checkbox" data-key="${esc(p.id)}" aria-label="Pilih program ${esc(p.name)}" ${isChecked ? 'checked' : ''}></td>
       <td><code>${esc(p.id)}</code></td>
       <td>${esc(p.name)}</td>
       <td><code>${esc(p.coaCode)}</code></td>
@@ -471,7 +550,7 @@ function renderProgramTable(m) {
 document.getElementById('program-select-all')?.addEventListener('change', e => {
   const m = getMaster();
   if (e.target.checked) {
-    m.programs.forEach((_, i) => _selectedPrograms.add(i));
+    m.programs.forEach(p => _selectedPrograms.add(p.id));
   } else {
     _selectedPrograms.clear();
   }
@@ -484,11 +563,11 @@ document.getElementById('program-select-all')?.addEventListener('change', e => {
 document.getElementById('tbody-program')?.addEventListener('change', e => {
   const cb = e.target.closest('.program-row-checkbox');
   if (!cb) return;
-  const idx = parseInt(cb.dataset.idx, 10);
+  const key = cb.dataset.key;
   if (cb.checked) {
-    _selectedPrograms.add(idx);
+    _selectedPrograms.add(key);
   } else {
-    _selectedPrograms.delete(idx);
+    _selectedPrograms.delete(key);
   }
   updateProgramSelectionUI();
 });
@@ -498,7 +577,9 @@ document.getElementById('btn-batch-delete-program')?.addEventListener('click', (
   const count = _selectedPrograms.size;
   if (!confirm(`Hapus ${count} program terpilih?`)) return;
   try {
-    const deleted = batchDeletePrograms(Array.from(_selectedPrograms));
+    const current = getMaster().programs;
+    const indices = current.map((item, index) => _selectedPrograms.has(item.id) ? index : -1).filter(index => index >= 0);
+    const deleted = batchDeletePrograms(indices);
     _selectedPrograms.clear();
     renderConfigPage();
     showToast(`${deleted} program berhasil dihapus`, 'success');
@@ -569,7 +650,7 @@ document.getElementById('tbody-program').addEventListener('click', e => {
   } else if (btn.dataset.action === 'del-prog') {
     if (confirm(`Hapus program "${m.programs[idx].name}"?`)) {
       deleteProgram(idx);
-      _selectedPrograms.delete(idx);
+      _selectedPrograms.delete(m.programs[idx].id);
       renderConfigPage();
       showToast('Program berhasil dihapus', 'success');
     }
@@ -580,7 +661,7 @@ document.getElementById('btn-analyze-keywords')?.addEventListener('click', async
   const btn = document.getElementById('btn-analyze-keywords');
   const master = getMaster();
   const settings = master.settings;
-  if (!settings.aiApiKey) {
+  if (settings.aiMode !== 'LOCAL_OLLAMA' && !settings.aiApiKey) {
     showToast('API Key AI belum diisi. Membuka tab Pengaturan AI...', 'error', 4500);
     const aiSubtab = document.querySelector('.subtab[data-tab="ai"]');
     if (aiSubtab) aiSubtab.click();
@@ -611,9 +692,14 @@ document.getElementById('btn-analyze-keywords')?.addEventListener('click', async
 });
 
 // Terapkan keyword suggestions button
+let _keywordSuggestionsMemory = null;
 document.getElementById('btn-apply-keyword-suggestions')?.addEventListener('click', async () => {
   const master = getMaster();
-  const suggestions = JSON.parse(localStorage.getItem('ziswaf_keyword_suggestions') || '{}');
+  let suggestions = _keywordSuggestionsMemory || {};
+  if (!_keywordSuggestionsMemory) {
+    try { suggestions = JSON.parse(safeStorageGet('ziswaf_keyword_suggestions', '{}')); }
+    catch { suggestions = {}; }
+  }
   if (!suggestions.variants || suggestions.variants.length === 0) {
     showToast('Tidak ada saran untuk diterapkan', 'error');
     return;
@@ -628,6 +714,7 @@ document.getElementById('btn-apply-keyword-suggestions')?.addEventListener('clic
       }
     }
   }
+  updateMaster({ programs: master.programs });
   closeModal('modal-keyword-review');
   renderConfigPage();
   showToast('Saran keyword diterapkan', 'success');
@@ -661,7 +748,8 @@ document.getElementById('btn-save-program').addEventListener('click', () => {
 // ─── DONATUR ──────────────────────────────────────────────────────────────────
 function showKeywordReviewModal(master, suggestions) {
   const content = document.getElementById('keyword-review-content');
-  localStorage.setItem('ziswaf_keyword_suggestions', JSON.stringify(suggestions || {}));
+  _keywordSuggestionsMemory = suggestions || {};
+  safeStorageSet('ziswaf_keyword_suggestions', JSON.stringify(_keywordSuggestionsMemory), { silent: true });
   
   let html = '';
   
@@ -747,9 +835,9 @@ function showKeywordReviewModal(master, suggestions) {
 function renderDonorTable(m) {
   document.getElementById('tbody-donor').innerHTML = m.donors.map((d, i) => {
     const prog = m.programs.find(p => p.id === d.defaultProgramId);
-    const isChecked = _selectedDonors.has(i);
+    const isChecked = _selectedDonors.has(d.id);
     return `<tr>
-      <td><input type="checkbox" class="donor-row-checkbox" data-idx="${i}" ${isChecked ? 'checked' : ''}></td>
+      <td><input type="checkbox" class="donor-row-checkbox" data-key="${esc(d.id)}" aria-label="Pilih donatur ${esc(d.name)}" ${isChecked ? 'checked' : ''}></td>
       <td>${esc(d.name)}</td>
       <td>${esc(d.phone || '-')}</td>
       <td class="text-xs">${esc(prog ? prog.name : 'Umum')}</td>
@@ -766,7 +854,7 @@ function renderDonorTable(m) {
 document.getElementById('donor-select-all')?.addEventListener('change', e => {
   const m = getMaster();
   if (e.target.checked) {
-    m.donors.forEach((_, i) => _selectedDonors.add(i));
+    m.donors.forEach(d => _selectedDonors.add(d.id));
   } else {
     _selectedDonors.clear();
   }
@@ -779,11 +867,11 @@ document.getElementById('donor-select-all')?.addEventListener('change', e => {
 document.getElementById('tbody-donor')?.addEventListener('change', e => {
   const cb = e.target.closest('.donor-row-checkbox');
   if (!cb) return;
-  const idx = parseInt(cb.dataset.idx, 10);
+  const key = cb.dataset.key;
   if (cb.checked) {
-    _selectedDonors.add(idx);
+    _selectedDonors.add(key);
   } else {
-    _selectedDonors.delete(idx);
+    _selectedDonors.delete(key);
   }
   updateDonorSelectionUI();
 });
@@ -793,7 +881,9 @@ document.getElementById('btn-batch-delete-donor')?.addEventListener('click', () 
   const count = _selectedDonors.size;
   if (!confirm(`Hapus ${count} donatur terpilih?`)) return;
   try {
-    const deleted = batchDeleteDonors(Array.from(_selectedDonors));
+    const current = getMaster().donors;
+    const indices = current.map((item, index) => _selectedDonors.has(item.id) ? index : -1).filter(index => index >= 0);
+    const deleted = batchDeleteDonors(indices);
     _selectedDonors.clear();
     renderConfigPage();
     showToast(`${deleted} donatur berhasil dihapus`, 'success');
@@ -851,7 +941,7 @@ document.getElementById('tbody-donor').addEventListener('click', e => {
   } else if (btn.dataset.action === 'del-donor') {
     if (confirm(`Hapus donatur "${m.donors[idx].name}"?`)) {
       deleteDonor(idx);
-      _selectedDonors.delete(idx);
+        _selectedDonors.delete(m.donors[idx].id);
       renderConfigPage();
       showToast('Donatur berhasil dihapus', 'success');
     }
@@ -883,10 +973,11 @@ document.getElementById('btn-save-donor').addEventListener('click', () => {
 function renderAliasList(m) {
   const list = m.companyAliases || [];
   document.getElementById('alias-list').innerHTML = list.map((a, i) => {
-    const isChecked = _selectedAliases.has(i);
+    const selectionKey = a.toLocaleLowerCase('id-ID');
+    const isChecked = _selectedAliases.has(selectionKey);
     return `
     <div class="alias-item">
-      <input type="checkbox" class="alias-row-checkbox" data-idx="${i}" ${isChecked ? 'checked' : ''}>
+      <input type="checkbox" class="alias-row-checkbox" data-key="${esc(selectionKey)}" aria-label="Pilih alias ${esc(a)}" ${isChecked ? 'checked' : ''}>
       <span>${esc(a)}</span>
       <button class="btn-icon-sm text-danger ms-auto" data-action="del-alias" data-idx="${i}" title="Hapus"><i class="fa-solid fa-xmark"></i></button>
     </div>`;
@@ -898,11 +989,11 @@ function renderAliasList(m) {
 document.getElementById('alias-list')?.addEventListener('change', e => {
   const cb = e.target.closest('.alias-row-checkbox');
   if (!cb) return;
-  const idx = parseInt(cb.dataset.idx, 10);
+  const key = cb.dataset.key;
   if (cb.checked) {
-    _selectedAliases.add(idx);
+    _selectedAliases.add(key);
   } else {
-    _selectedAliases.delete(idx);
+    _selectedAliases.delete(key);
   }
   updateAliasSelectionUI();
 });
@@ -912,7 +1003,9 @@ document.getElementById('btn-batch-delete-alias')?.addEventListener('click', () 
   const count = _selectedAliases.size;
   if (!confirm(`Hapus ${count} alias terpilih?`)) return;
   try {
-    const deleted = batchDeleteAliases(Array.from(_selectedAliases));
+    const current = getMaster().companyAliases || [];
+    const indices = current.map((item, index) => _selectedAliases.has(item.toLocaleLowerCase('id-ID')) ? index : -1).filter(index => index >= 0);
+    const deleted = batchDeleteAliases(indices);
     _selectedAliases.clear();
     renderConfigPage();
     showToast(`${deleted} alias berhasil dihapus`, 'success');
@@ -939,9 +1032,10 @@ document.getElementById('alias-list').addEventListener('click', e => {
   const btn = e.target.closest('[data-action="del-alias"]');
   if (!btn) return;
   const idx = parseInt(btn.dataset.idx);
+  const aliasKey = (getMaster().companyAliases[idx] || '').toLocaleLowerCase('id-ID');
   try {
     deleteAlias(idx);
-    _selectedAliases.delete(idx);
+    _selectedAliases.delete(aliasKey);
     renderConfigPage();
     showToast('Alias dihapus', 'success');
   } catch (err) {
@@ -953,11 +1047,22 @@ document.getElementById('alias-list').addEventListener('click', e => {
 function renderAiSettings(m) {
   const s = m.settings || {};
   const currentMode = s.aiMode || 'OFF';
+  const summary = document.getElementById('ai-config-summary');
+  if (summary) {
+    const isCloud = currentMode === 'GEMINI' || currentMode === 'OPENAI';
+    const ready = currentMode === 'OFF' || currentMode === 'LOCAL_OLLAMA' || Boolean(s.aiApiKey);
+    summary.innerHTML = `
+      <div><span>Status</span><strong class="${ready ? 'text-emerald' : 'text-warning'}">${currentMode === 'OFF' ? 'AI nonaktif · Layer 0–4' : ready ? 'Siap digunakan' : 'API key belum diisi'}</strong></div>
+      <div><span>Provider / model</span><strong>${esc(currentMode)} · ${currentMode === 'OFF' ? '—' : esc(resolveAiModel(s))}</strong></div>
+      <div><span>Konfigurasi</span><strong>Schema v${esc(m.schemaVersion || 1)} · ambang ${Number(s.confidenceThreshold ?? 0.8).toFixed(2)}</strong></div>
+      <div><span>Data keluar</span><strong>${currentMode === 'OFF' || currentMode === 'LOCAL_OLLAMA' ? 'Tidak ke provider cloud' : 'Label belum terpetakan + master program'}</strong></div>
+      ${isCloud ? '<p>Daftar donatur dan API key tidak disertakan dalam backup atau prompt klasifikasi.</p>' : ''}`;
+  }
   document.getElementById('ai-mode').value = currentMode;
   document.getElementById('ai-model-name').value = s.aiModelName || '';
   document.getElementById('ai-api-key').value = s.aiApiKey || '';
   document.getElementById('ollama-endpoint').value = s.ollamaEndpoint || 'http://localhost:11434/api/chat';
-  document.getElementById('confidence-threshold').value = s.confidenceThreshold ?? 0.70;
+  document.getElementById('confidence-threshold').value = s.confidenceThreshold ?? 0.80;
   document.getElementById('org-name').value = s.orgName || '';
 
   setupGenericDropdown({
@@ -993,9 +1098,9 @@ function toggleAiFields(mode) {
 
   if (modelEl) {
     if (mode === 'GEMINI') {
-      modelEl.placeholder = 'gemini-2.0-flash';
+      modelEl.placeholder = 'gemini-3.5-flash-lite';
     } else if (mode === 'OPENAI') {
-      modelEl.placeholder = 'gpt-4o-mini';
+      modelEl.placeholder = 'gpt-5.6-luna';
     } else if (mode === 'LOCAL_OLLAMA') {
       modelEl.placeholder = 'qwen2.5:3b-instruct';
     }
@@ -1009,9 +1114,10 @@ document.getElementById('btn-save-ai').addEventListener('click', () => {
   const aiModelName = sanitizeInputText(document.getElementById('ai-model-name').value, 80);
   const aiApiKey = document.getElementById('ai-api-key').value.trim();
   const ollamaEndpoint = sanitizeInputText(document.getElementById('ollama-endpoint').value, 200);
-  const confidenceThreshold = parseFloat(document.getElementById('confidence-threshold').value);
+  const confidenceThreshold = Math.min(1, Math.max(0.80, parseFloat(document.getElementById('confidence-threshold').value) || 0.80));
   const orgName = sanitizeInputText(document.getElementById('org-name').value, 120);
   updateMaster({ settings: { ...getMaster().settings, aiMode, aiModelName, aiApiKey, ollamaEndpoint, confidenceThreshold, orgName } });
+  clearAiCache();
   showToast('Pengaturan AI berhasil disimpan', 'success');
 });
 
@@ -1078,6 +1184,11 @@ function setupGenericDropdown(cfg) {
   }
 
   const activeItem = items.find(it => String(it.value) === String(val));
+  trigger.setAttribute('aria-haspopup', 'listbox');
+  trigger.setAttribute('aria-controls', listId);
+  trigger.setAttribute('aria-expanded', menu.classList.contains('hidden') ? 'false' : 'true');
+  listEl.setAttribute('role', 'listbox');
+  if (searchInput) searchInput.setAttribute('aria-label', 'Cari pilihan');
   if (textEl) {
     if (activeItem) {
       textEl.innerHTML = activeItem.badge
@@ -1106,13 +1217,14 @@ function setupGenericDropdown(cfg) {
 
     listEl.innerHTML = filtered.map(it => {
       const isSelected = String(it.value) === String(currentVal);
-      return `<div class="coa-dropdown-item ${isSelected ? 'selected' : ''}" data-value="${esc(it.value)}">
+      return `<div class="coa-dropdown-item ${isSelected ? 'selected' : ''}" role="option" tabindex="-1" aria-selected="${isSelected}" data-value="${esc(it.value)}">
         <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 0%; min-width: 0;">${esc(it.label)}</span>
         ${it.badge ? `<span class="coa-dropdown-badge">${esc(it.badge)}</span>` : ''}
       </div>`;
     }).join('');
   }
 
+  wrapper._dropdownState = { items, val, renderList, trigger, menu, listEl, searchInput, textEl, hiddenInput, placeholder, onSelect };
   renderList();
 
   if (!trigger.dataset.bound) {
@@ -1120,6 +1232,8 @@ function setupGenericDropdown(cfg) {
 
     trigger.addEventListener('click', (e) => {
       e.stopPropagation();
+      const state = wrapper._dropdownState;
+      const { menu, listEl, searchInput } = state;
       const isOpen = !menu.classList.contains('hidden');
       document.querySelectorAll('.coa-dropdown-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
       document.querySelectorAll('.coa-dropdown-fixed-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
@@ -1128,6 +1242,7 @@ function setupGenericDropdown(cfg) {
 
       if (!isOpen) {
         menu.classList.remove('hidden');
+        trigger.setAttribute('aria-expanded', 'true');
         wrapper.classList.add('open');
         const parentItem = wrapper.closest('.sys-coa-item');
         if (parentItem) parentItem.classList.add('has-dropdown-open');
@@ -1148,20 +1263,32 @@ function setupGenericDropdown(cfg) {
           listEl.style.maxHeight = maxListH + 'px';
         }
 
-        renderList('');
+        state.renderList('');
         if (searchInput) {
           searchInput.value = '';
           setTimeout(() => searchInput.focus(), 50);
+        } else {
+          setTimeout(() => listEl.querySelector('[aria-selected="true"]')?.focus() || listEl.querySelector('[role="option"]')?.focus(), 0);
         }
       } else {
+        menu.classList.add('hidden');
+        wrapper.classList.remove('open');
+        trigger.setAttribute('aria-expanded', 'false');
         menu.classList.remove('dropup');
         listEl.style.maxHeight = '';
       }
     });
 
+    trigger.addEventListener('keydown', event => {
+      if (['ArrowDown', 'Enter', ' '].includes(event.key) && wrapper._dropdownState.menu.classList.contains('hidden')) {
+        event.preventDefault();
+        trigger.click();
+      }
+    });
+
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
-        renderList(e.target.value);
+        wrapper._dropdownState.renderList(e.target.value);
       });
       searchInput.addEventListener('click', (e) => e.stopPropagation());
     }
@@ -1169,6 +1296,8 @@ function setupGenericDropdown(cfg) {
     listEl.addEventListener('click', (e) => {
       const itemEl = e.target.closest('.coa-dropdown-item');
       if (!itemEl) return;
+      const state = wrapper._dropdownState;
+      const { items, hiddenInput, textEl, menu, placeholder, onSelect } = state;
       const selectedValue = itemEl.dataset.value;
       const selectedItem = items.find(it => String(it.value) === String(selectedValue));
 
@@ -1189,12 +1318,39 @@ function setupGenericDropdown(cfg) {
 
       menu.classList.add('hidden');
       wrapper.classList.remove('open');
+      trigger.setAttribute('aria-expanded', 'false');
       const parentItem = wrapper.closest('.sys-coa-item');
       if (parentItem) parentItem.classList.remove('has-dropdown-open');
 
       if (typeof onSelect === 'function') {
         onSelect(selectedValue, selectedItem);
       }
+      trigger.focus();
+    });
+
+    listEl.addEventListener('keydown', event => {
+      const options = [...listEl.querySelectorAll('[role="option"]')];
+      if (!options.length) return;
+      const current = Math.max(0, options.indexOf(document.activeElement));
+      let next = current;
+      if (event.key === 'ArrowDown') next = Math.min(options.length - 1, current + 1);
+      else if (event.key === 'ArrowUp') next = Math.max(0, current - 1);
+      else if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = options.length - 1;
+      else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        document.activeElement?.click();
+        return;
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        wrapper._dropdownState.menu.classList.add('hidden');
+        wrapper.classList.remove('open');
+        trigger.setAttribute('aria-expanded', 'false');
+        trigger.focus();
+        return;
+      } else return;
+      event.preventDefault();
+      options[next].focus();
     });
   }
 }
@@ -1226,14 +1382,20 @@ function initOrUpdateSysCoaDropdown(key, currentCode, defaultName, coaList) {
 // Global click & Escape handler for all COA dropdowns
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.coa-dropdown-wrapper')) {
-    document.querySelectorAll('.coa-dropdown-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
+    document.querySelectorAll('.coa-dropdown-menu:not(.hidden)').forEach(m => {
+      m.classList.add('hidden');
+      m.closest('.coa-dropdown-wrapper')?.querySelector('.coa-dropdown-trigger')?.setAttribute('aria-expanded', 'false');
+    });
     document.querySelectorAll('.coa-dropdown-wrapper.open').forEach(w => w.classList.remove('open'));
     document.querySelectorAll('.sys-coa-item.has-dropdown-open').forEach(i => i.classList.remove('has-dropdown-open'));
   }
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    document.querySelectorAll('.coa-dropdown-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
+    document.querySelectorAll('.coa-dropdown-menu:not(.hidden)').forEach(m => {
+      m.classList.add('hidden');
+      m.closest('.coa-dropdown-wrapper')?.querySelector('.coa-dropdown-trigger')?.setAttribute('aria-expanded', 'false');
+    });
     document.querySelectorAll('.coa-dropdown-wrapper.open').forEach(w => w.classList.remove('open'));
     document.querySelectorAll('.sys-coa-item.has-dropdown-open').forEach(i => i.classList.remove('has-dropdown-open'));
   }
@@ -1282,6 +1444,17 @@ document.getElementById('btn-export-json').addEventListener('click', () => {
   showToast('Config JSON diekspor', 'success');
 });
 
+document.getElementById('btn-restore-auto-backup')?.addEventListener('click', () => {
+  if (!confirm('Pulihkan backup otomatis terakhir dan ganti konfigurasi aktif?')) return;
+  try {
+    restoreLastConfigBackup();
+    renderConfigPage();
+    showToast('Backup otomatis terakhir berhasil dipulihkan', 'success');
+  } catch (error) {
+    showToast('Gagal memulihkan backup: ' + error.message, 'error');
+  }
+});
+
 // Template Download Handlers
 ['coa', 'program', 'donor'].forEach(entity => {
   document.getElementById(`btn-download-template-${entity}`)?.addEventListener('click', () => {
@@ -1289,10 +1462,11 @@ document.getElementById('btn-export-json').addEventListener('click', () => {
     if (!XLSX) { showToast('SheetJS belum dimuat', 'error'); return; }
     let data = [];
     let sheetName = 'Template';
+    const systemCodes = getSystemCodes(getMaster());
     if (entity === 'coa') {
       sheetName = 'COA';
       data = [
-        { 'NO AKUN': 40201001, 'NAMA AKUN': 'Penerimaan Infak Umum', 'KATEGORI': 'INFAK / SEDEKAH' },
+        { 'NO AKUN': systemCodes.umum, 'NAMA AKUN': systemCodes.umumName, 'KATEGORI': 'INFAK / SEDEKAH' },
         { 'NO AKUN': 40202101, 'NAMA AKUN': 'Penerimaan Infak Program Pendidikan', 'KATEGORI': 'INFAK / SEDEKAH' }
       ];
     } else if (entity === 'program') {
@@ -1323,7 +1497,24 @@ function initiateMasterImport(type, payload, fileName, targetEntity = null) {
   const promptEl = document.getElementById('master-import-prompt-text');
   if (promptEl) {
     const targetLabel = targetEntity === 'coa' ? 'Master COA' : targetEntity === 'program' ? 'Master Program' : targetEntity === 'donor' ? 'Master Donatur' : 'Master Data';
-    promptEl.innerHTML = `Berkas <b>${esc(fileName)}</b> siap diimpor ke <b>${targetLabel}</b>.<br>Pilih metode impor:`;
+    let previewText = '';
+    if (type === 'json') {
+      const replacePreview = previewConfigImport(payload, 'replace');
+      const mergePreview = previewConfigImport(payload, 'merge');
+      const formatChanges = preview => {
+        const totals = Object.values(preview.changes).reduce((sum, item) => ({
+          added: sum.added + item.added,
+          updated: sum.updated + item.updated,
+          removed: sum.removed + item.removed
+        }), { added: 0, updated: 0, removed: 0 });
+        return `+${totals.added} baru, ~${totals.updated} berubah, −${totals.removed} dihapus`;
+      };
+      previewText = `<br><br><b>Pratinjau tervalidasi:</b><br>`
+        + `Timpa: ${replacePreview.coaCount} COA, ${replacePreview.programCount} program, ${replacePreview.donorCount} donatur <span class="text-muted">(${formatChanges(replacePreview)})</span>.<br>`
+        + `Gabung: ${mergePreview.coaCount} COA, ${mergePreview.programCount} program, ${mergePreview.donorCount} donatur <span class="text-muted">(${formatChanges(mergePreview)})</span>.<br>`
+        + `<small>Backup konfigurasi aktif dibuat otomatis sebelum commit. Kredensial AI tidak diimpor atau diekspor.</small>`;
+    }
+    promptEl.innerHTML = `Berkas <b>${esc(fileName)}</b> siap diimpor ke <b>${targetLabel}</b>.${previewText}<br><br>Pilih metode impor:`;
   }
   openModal('modal-master-import-mode');
 }
@@ -1401,6 +1592,7 @@ document.getElementById('btn-reset-defaults').addEventListener('click', () => {
 // ─── UPLOAD PAGE ──────────────────────────────────────────────────────────────
 
 let _pendingFile = null;
+let _pendingParsedRows = null;
 
 function setupDropzone() {
   const dz = document.getElementById('dropzone');
@@ -1413,11 +1605,28 @@ function setupDropzone() {
   fi.addEventListener('change', e => { if (e.target.files[0]) handleFileSelected(e.target.files[0]); e.target.value = ''; });
 }
 
-function handleFileSelected(file) {
+async function handleFileSelected(file) {
   if (getRowCount() > 0) {
-    _pendingFile = file;
-    document.getElementById('rm-existing-count').textContent = getRowCount();
-    openModal('modal-replace-merge');
+    try {
+      showToast(`Memeriksa ${file.name} sebelum digabungkan…`, 'info');
+      const parsed = await parseBankStatement(new Uint8Array(await file.arrayBuffer()), file.name);
+      if (!parsed?.length) throw new Error('Tidak ada data yang dapat dibaca.');
+      if (parsed.length > MAX_SESSION_ROWS) throw new Error(`Berkas berisi ${parsed.length} baris dan melampaui batas ${MAX_SESSION_ROWS.toLocaleString('id-ID')}.`);
+      const preview = previewMergeRows(parsed);
+      _pendingFile = file;
+      _pendingParsedRows = parsed;
+      document.getElementById('rm-existing-count').textContent = getRowCount();
+      document.getElementById('rm-file-name').textContent = file.name;
+      document.getElementById('rm-incoming-count').textContent = preview.incoming.toLocaleString('id-ID');
+      document.getElementById('rm-new-count').textContent = preview.added.toLocaleString('id-ID');
+      document.getElementById('rm-duplicate-count').textContent = preview.duplicates.toLocaleString('id-ID');
+      document.getElementById('rm-projected-count').textContent = preview.projectedTotal.toLocaleString('id-ID');
+      openModal('modal-replace-merge');
+    } catch (error) {
+      _pendingFile = null;
+      _pendingParsedRows = null;
+      showToast('Gagal membaca berkas: ' + error.message, 'error');
+    }
   } else {
     processFile(file, false);
   }
@@ -1425,11 +1634,15 @@ function handleFileSelected(file) {
 
 document.getElementById('btn-replace-file').addEventListener('click', () => {
   closeModal('modal-replace-merge');
-  if (_pendingFile) { clearRows(); processFile(_pendingFile, false); _pendingFile = null; }
+  if (_pendingFile) processFile(_pendingFile, false, _pendingParsedRows);
+  _pendingFile = null;
+  _pendingParsedRows = null;
 });
 document.getElementById('btn-merge-file').addEventListener('click', () => {
   closeModal('modal-replace-merge');
-  if (_pendingFile) { processFile(_pendingFile, true); _pendingFile = null; }
+  if (_pendingFile) processFile(_pendingFile, true, _pendingParsedRows);
+  _pendingFile = null;
+  _pendingParsedRows = null;
 });
 
 const LAYER_LABELS = {
@@ -1453,7 +1666,7 @@ const TUTORIAL_CONTENT = {
         </li>
         <li>
           <i class="fa-solid fa-shield-halved text-accent"></i>
-          <div><strong>3 Akun Default Sistem</strong> (<span class="badge badge-expense text-xs">Beban</span> <span class="coa-dropdown-badge">60100008</span>, <span class="badge badge-donatur-tetap text-xs">Infak Umum</span> <span class="coa-dropdown-badge">40201001</span>, <span class="badge badge-unauthorized-fallback text-xs">Unauthorized</span> <span class="coa-dropdown-badge">40201000</span>) tidak bisa dihapus karena digunakan langsung oleh mesin klasifikasi — namun pengubahan nama akun tetap diperbolehkan.</div>
+          <div><strong>3 Akun Default Sistem</strong> (<span class="badge badge-expense text-xs">Beban</span> <span class="coa-dropdown-badge">{{expense}}</span>, <span class="badge badge-donatur-tetap text-xs">Infak Umum</span> <span class="coa-dropdown-badge">{{umum}}</span>, <span class="badge badge-unauthorized-fallback text-xs">Unauthorized</span> <span class="coa-dropdown-badge">{{unauth}}</span>) tidak bisa dihapus karena digunakan langsung oleh mesin klasifikasi — namun pengubahan nama akun tetap diperbolehkan.</div>
         </li>
         <li>
           <i class="fa-solid fa-tags text-warning"></i>
@@ -1505,7 +1718,7 @@ const TUTORIAL_CONTENT = {
         </li>
         <li>
           <i class="fa-solid fa-bullseye text-emerald"></i>
-          <div>Setiap donatur dapat diikat ke <strong>Program Rutin</strong> dan <strong>Default COA</strong> (umumnya Infak Umum <span class="coa-dropdown-badge">40201001</span>).</div>
+          <div>Setiap donatur dapat diikat ke <strong>Program Rutin</strong> dan <strong>Default COA</strong> (umumnya Infak Umum <span class="coa-dropdown-badge">{{umum}}</span>).</div>
         </li>
         <li>
           <i class="fa-solid fa-arrows-split-up-and-left text-cyan"></i>
@@ -1527,7 +1740,7 @@ const TUTORIAL_CONTENT = {
         </li>
         <li>
           <i class="fa-solid fa-building text-cyan"></i>
-          <div>Jika mutasi <strong>hanya berisi nama lembaga</strong> tanpa keterangan apapun, otomatis dialokasikan ke <strong>Infak Umum</strong> <span class="coa-dropdown-badge">40201001</span> (Layer Yayasan), bukan Unauthorized.</div>
+          <div>Jika mutasi <strong>hanya berisi nama lembaga</strong> tanpa keterangan apapun, otomatis dialokasikan ke <strong>Infak Umum</strong> <span class="coa-dropdown-badge">{{umum}}</span> (Layer Yayasan), bukan Unauthorized.</div>
         </li>
         <li>
           <i class="fa-solid fa-arrow-right-long text-emerald"></i>
@@ -1549,15 +1762,15 @@ const TUTORIAL_CONTENT = {
         </li>
         <li>
           <i class="fa-solid fa-sliders text-cyan"></i>
-          <div><strong>Confidence Threshold</strong>: batas keyakinan minimum (default <span class="coa-dropdown-badge">0.70</span>) agar alokasi AI disetujui; jika di bawah itu, otomatis dialihkan ke status Unauthorized untuk review manual.</div>
+          <div><strong>Confidence Threshold</strong>: batas keyakinan minimum (default dan minimum <span class="coa-dropdown-badge">0.80</span>) agar alokasi AI disetujui; jika di bawah itu, otomatis dialihkan ke status Unauthorized untuk review manual.</div>
         </li>
         <li>
           <i class="fa-solid fa-stopwatch text-warning"></i>
-          <div><strong>Safety Timeout 2 detik</strong> — jika server AI tidak merespons dalam 2 detik, sistem otomatis fallback aman tanpa menghentikan atau memperlambat upload transaksi.</div>
+          <div><strong>Timeout 60 detik dengan satu percobaan ulang</strong> — kegagalan provider atau respons rusak masuk karantina dengan alasan yang dapat ditinjau, tanpa menebak alokasi.</div>
         </li>
         <li>
           <i class="fa-solid fa-lock text-emerald"></i>
-          <div><strong>Privasi Terjamin</strong>: API Key hanya tersimpan pada memori sesi peramban Anda dan tidak pernah dikirim ke server luar manapun selain endpoint AI resmi yang Anda pilih.</div>
+          <div><strong>Privasi AI</strong>: API Key tersimpan di browser lokal dan tidak masuk berkas backup. Saat AI cloud aktif, hanya keterangan transaksi yang belum terpetakan dan master program yang dikirim langsung ke endpoint resmi pilihan Anda; daftar donatur tidak dikirim.</div>
         </li>
       </ul>`
   },
@@ -1588,12 +1801,17 @@ const TUTORIAL_CONTENT = {
 function openTutorial(key) {
   const c = TUTORIAL_CONTENT[key];
   if (!c) return;
+  const currentSystemCodes = getSystemCodes(getMaster());
+  const currentHtml = c.html
+    .replaceAll('{{expense}}', String(currentSystemCodes.expense))
+    .replaceAll('{{umum}}', String(currentSystemCodes.umum))
+    .replaceAll('{{unauth}}', String(currentSystemCodes.unauth));
   document.getElementById('tutorial-title').textContent = c.title;
-  document.getElementById('tutorial-body').innerHTML = c.html;
+  document.getElementById('tutorial-body').innerHTML = currentHtml;
   openModal('modal-tutorial');
 }
 
-async function processFile(file, merge) {
+async function processFile(file, merge, preparedRows = null) {
   const dz = document.getElementById('dropzone');
   const ps = document.getElementById('progress-section');
   const pd = document.getElementById('upload-done');
@@ -1605,12 +1823,12 @@ async function processFile(file, merge) {
   const fill = document.getElementById('progress-fill');
   const label = document.getElementById('progress-label');
   const pct = document.getElementById('progress-pct');
+  const progressBar = document.getElementById('upload-progress-bar');
 
   const layerCounts = { EXPENSE: 0, CAMPAIGN_TAIL: 0, DONATUR_TETAP: 0, KEYWORD: 0, AI_SEMANTIC: 0, UNAUTHORIZED_FALLBACK: 0 };
 
   try {
-    const buf = await file.arrayBuffer();
-    const parsed = await parseBankStatement(new Uint8Array(buf), file.name);
+    const parsed = preparedRows ? [...preparedRows] : await parseBankStatement(new Uint8Array(await file.arrayBuffer()), file.name);
     if (!parsed?.length) { showToast('Tidak ada data yang dapat dibaca', 'error'); resetUploadUI(); return; }
 
     if (parsed.length > MAX_SESSION_ROWS) {
@@ -1621,11 +1839,12 @@ async function processFile(file, merge) {
     parsed.sort((a, b) => b.rawAmount - a.rawAmount);
     const master = getMaster();
 
-    const classified = await classifyBatch(parsed, master, (current, total, counts) => {
+    const classified = await classifyBatch(parsed, master, (current, total, _item, counts) => {
       const p = Math.round((current / total) * 100);
       fill.style.width = p + '%';
       pct.textContent = p + '%';
       label.textContent = `Memproses ${current} / ${total}`;
+      progressBar?.setAttribute('aria-valuenow', String(p));
       if (counts) {
         Object.keys(counts).forEach(k => {
           const el = document.getElementById(`lc-${k}`);
@@ -1656,6 +1875,9 @@ async function processFile(file, merge) {
     } else {
       setRows(classified);
     }
+    _selectedIds.clear();
+    _isGlobalSelected = false;
+    _undoSnapshot = null;
 
     ps.classList.add('hidden');
     pd.classList.remove('hidden');
@@ -1677,6 +1899,7 @@ function resetUploadUI() {
   document.getElementById('progress-section').classList.add('hidden');
   document.getElementById('upload-done').classList.add('hidden');
   document.getElementById('progress-fill').style.width = '0%';
+  document.getElementById('upload-progress-bar')?.setAttribute('aria-valuenow', '0');
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
@@ -1730,17 +1953,20 @@ function setupReportCategoryDropdown(currentVal = 'ALL') {
     currentValue: currentVal,
     placeholder: 'Semua Kategori & Status',
     emptyText: 'Tidak ada status yang cocok',
-    getItems: () => [
+    getItems: () => {
+      const sys = getSystemCodes(getMaster());
+      return [
       { value: 'ALL', label: 'Semua Kategori & Status' },
-      { value: 'UNAUTHORIZED', label: 'Unauthorized (Belum Terpetakan)', badge: '40201000' },
+      { value: 'UNAUTHORIZED', label: 'Unauthorized (Belum Terpetakan)', badge: String(sys.unauth) },
       { value: 'KEYWORD', label: 'Kata Kunci (Keyword)', badge: 'Keyword' },
       { value: 'DONATUR_TETAP', label: 'Donatur Tetap', badge: 'Donatur' },
       { value: 'CAMPAIGN_TAIL', label: 'Kode Ekor Nominal', badge: 'Ekor' },
-      { value: 'EXPENSE', label: 'Beban / Pengeluaran', badge: '60100008' },
+      { value: 'EXPENSE', label: 'Beban / Pengeluaran', badge: String(sys.expense) },
       { value: 'ORG_ALIAS', label: 'Alias Lembaga / Yayasan', badge: 'Yayasan' },
       { value: 'AI_SEMANTIC', label: 'Rekomendasi AI', badge: 'AI' },
       { value: 'MANUAL_OVERRIDE', label: 'Koreksi Manual', badge: 'Manual' }
-    ],
+    ];
+    },
     onSelect: (val) => {
       _selectedIds.clear();
       _isGlobalSelected = false;
@@ -2009,6 +2235,12 @@ function renderTop5Chart(filtered, master) {
     if (_chartTop5) { _chartTop5.destroy(); _chartTop5 = null; }
     return;
   }
+  if (typeof globalThis.Chart !== 'function') {
+    canvas.classList.add('hidden');
+    legendEl.insertAdjacentHTML('beforeend', '<div class="text-muted text-xs mt-2">Grafik visual tidak tersedia; ringkasan angka tetap dapat digunakan.</div>');
+    return;
+  }
+  canvas.classList.remove('hidden');
 
   const isNarrow = (canvas.parentElement?.clientWidth && canvas.parentElement.clientWidth > 0)
     ? canvas.parentElement.clientWidth < 450
@@ -2063,22 +2295,23 @@ function renderTop5Chart(filtered, master) {
   }
 }
 
-function renderCatChart(filtered, sys) {
-  const umum = sys?.umum || 40201001;
-  const GROUPS = {
-    'Zakat': [40100000, 40100101, 40100102, 40100103],
-    'Infak Umum': [umum],
-    'Infak Terikat': [40201002, 40202101, 40202104, 40202201, 40202301, 40202302, 40202401, 40202501, 40202502],
-    'DSKL': [40202601, 40202602],
-    'Wakaf': [40301000, 40203110, 40203201],
+function renderCatChart(filtered) {
+  const categoryByCode = new Map(getMaster().coaList.map(coa => [Number(coa.code), String(coa.category || 'Lainnya')]));
+  const labelFor = category => {
+    const upper = category.toUpperCase();
+    if (upper === 'ZAKAT') return 'Zakat';
+    if (upper === 'WAKAF') return 'Wakaf';
+    if (upper === 'DSKL') return 'DSKL';
+    if (upper.includes('INFAK') || upper.includes('SEDEKAH')) return 'Infak / Sedekah';
+    return category || 'Lainnya';
   };
   const totals = {};
-  Object.keys(GROUPS).forEach(g => totals[g] = 0);
   filtered.forEach(r => {
     if (r.isExpense || r.rawAmount <= 0) return;
-    for (const [g, codes] of Object.entries(GROUPS)) {
-      if (codes.includes(r.assignedCoa)) { totals[g] += r.rawAmount; return; }
-    }
+    const category = categoryByCode.get(Number(r.assignedCoa));
+    if (!category || category.toUpperCase() === 'BEBAN') return;
+    const label = labelFor(category);
+    totals[label] = (totals[label] || 0) + r.rawAmount;
   });
   const items = Object.entries(totals).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
   const grandTotal = items.reduce((s, [, v]) => s + v, 0);
@@ -2096,6 +2329,12 @@ function renderCatChart(filtered, sys) {
     if (_chartCat) { _chartCat.destroy(); _chartCat = null; }
     return;
   }
+  if (typeof globalThis.Chart !== 'function') {
+    canvas.classList.add('hidden');
+    catLegend.insertAdjacentHTML('beforeend', '<div class="text-muted text-xs mt-2">Grafik visual tidak tersedia; ringkasan angka tetap dapat digunakan.</div>');
+    return;
+  }
+  canvas.classList.remove('hidden');
 
   if (_chartCat) {
     _chartCat.data.labels = items.map(([n]) => n);
@@ -2124,7 +2363,7 @@ function renderCatChart(filtered, sys) {
 
 let _selectedIds = new Set();
 let _isGlobalSelected = false;
-let _tableMode = localStorage.getItem('ziswaf_demo_table_mode') || 'compact';
+let _tableMode = safeStorageGet('ziswaf_demo_table_mode', 'compact');
 
 function applyTableMode() {
   const table = document.getElementById('transactions-table');
@@ -2143,7 +2382,7 @@ function applyTableMode() {
 
 document.getElementById('btn-toggle-table-mode')?.addEventListener('click', () => {
   _tableMode = _tableMode === 'compact' ? 'detailed' : 'compact';
-  localStorage.setItem('ziswaf_demo_table_mode', _tableMode);
+  safeStorageSet('ziswaf_demo_table_mode', _tableMode);
   applyTableMode();
   renderTable();
 });
@@ -2181,8 +2420,12 @@ function renderTable() {
             : '<span class="badge badge-ok">OK</span>';
 
       const isCompact = _tableMode === 'compact';
-      const coaTooltip = `No. Akun: ${row.assignedCoa || '-'}\nNama Akun: ${row.newName || '-'}\nProgram: ${prog?.name || '-'}`;
-      const rationaleTooltip = `Layer: ${row.matchedLayer || 'MANUAL'}\nKeyakinan AI: ${row.confidence != null ? (row.confidence * 100).toFixed(0) + '%' : '-'}\nAlasan: ${row.reasoning || '-'}`;
+      const coaTooltip = `No. Akun: ${row.assignedCoa || '-'}\nNama Akun: ${row.assignedCoaName || '-'}\nProgram: ${prog?.name || '-'}`;
+      const aiEvidence = ['ai', 'ai_rejected'].includes(row.evidence?.type) ? row.evidence.value : null;
+      const aiDetails = aiEvidence
+        ? `\nProvider AI: ${aiEvidence.provider || '-'}\nModel AI: ${aiEvidence.model || '-'}\nStatus AI: ${aiEvidence.status || '-'}`
+        : '';
+      const rationaleTooltip = `Layer: ${row.matchedLayer || 'MANUAL'}\nKeyakinan AI: ${row.confidence != null ? (row.confidence * 100).toFixed(0) + '%' : '-'}\nAlasan: ${row.reasoning || '-'}${aiDetails}`;
       const labelTooltip = `Keterangan: ${row.rawLabel || '-'}\nPengirim: ${row.extractedSenderName || '-'}`;
       const reasonDisplay = row.reasoning || (row.matchedLayer === 'UNAUTHORIZED_FALLBACK' ? 'Tidak cocok kriteria (Unauthorized)' : '-');
       const senderClean = (row.extractedSenderName || '').trim();
@@ -2205,7 +2448,7 @@ function renderTable() {
           <td data-tooltip="${esc(coaTooltip)}">
             <button type="button" class="coa-table-btn" data-id="${esc(row.id)}" data-coa="${row.assignedCoa}" title="Klik untuk ubah alokasi COA">
               <span class="coa-dropdown-badge">${row.assignedCoa}</span>
-              <span class="coa-table-name">${esc(row.newName || master.coaList.find(c => c.code === row.assignedCoa)?.name || '')}</span>
+              <span class="coa-table-name">${esc(row.assignedCoaName || master.coaList.find(c => c.code === row.assignedCoa)?.name || '')}</span>
               <i class="fa-solid fa-chevron-down coa-chevron"></i>
             </button>
           </td>
@@ -2229,7 +2472,7 @@ function renderTable() {
           <td>
             <button type="button" class="coa-table-btn" data-id="${esc(row.id)}" data-coa="${row.assignedCoa}" title="Klik untuk ubah alokasi COA">
               <span class="coa-dropdown-badge">${row.assignedCoa}</span>
-              <span class="coa-table-name">${esc(row.newName || master.coaList.find(c => c.code === row.assignedCoa)?.name || '')}</span>
+              <span class="coa-table-name">${esc(row.assignedCoaName || master.coaList.find(c => c.code === row.assignedCoa)?.name || '')}</span>
               <i class="fa-solid fa-chevron-down coa-chevron"></i>
             </button>
             ${prog ? `<div class="text-muted text-xs mt-1 truncate-1" data-tooltip="${esc(prog.name)}"><i class="fa-solid fa-hand-holding-heart"></i> ${esc(prog.name)}</div>` : ''}
@@ -2403,12 +2646,14 @@ function initGlobalCoaPicker() {
     preserveScroll(() => {
       updateRow(rowId, {
         assignedCoa: newCoa,
+        assignedCoaName: coaEntry?.name || String(newCoa),
         newName: coaEntry?.name || String(newCoa),
+        assignedProgramId: null,
         matchedLayer: 'MANUAL_OVERRIDE',
         isOverridden: true,
         confidence: 1.0,
         reasoning: 'Override manual',
-        isExpense: newCoa === 60100008
+        isExpense: newCoa === getSystemCodes(master).expense
       });
       renderDashboard();
     });
@@ -2484,12 +2729,14 @@ function onCoaChange(e) {
   preserveScroll(() => {
     updateRow(id, {
       assignedCoa: newCoa,
+      assignedCoaName: coaEntry?.name || String(newCoa),
       newName: coaEntry?.name || String(newCoa),
+      assignedProgramId: null,
       matchedLayer: 'MANUAL_OVERRIDE',
       isOverridden: true,
       confidence: 1.0,
       reasoning: 'Override manual',
-      isExpense: newCoa === 60100008
+      isExpense: newCoa === getSystemCodes(master).expense
     });
     renderDashboard();
   });
@@ -2601,12 +2848,14 @@ async function execute5LayerRescan(targetIds = null) {
   const rescanFill = document.getElementById('rescan-progress-fill');
   const rescanLabel = document.getElementById('rescan-progress-label');
   const rescanPct = document.getElementById('rescan-progress-pct');
+  const rescanProgressBar = document.getElementById('rescan-progress-bar');
 
   if (modalProgress) {
     modalProgress.classList.remove('hidden');
     if (rescanFill) rescanFill.style.width = '0%';
     if (rescanPct) rescanPct.textContent = '0%';
     if (rescanLabel) rescanLabel.textContent = `Memproses 0 / ${targetRows.length}`;
+    rescanProgressBar?.setAttribute('aria-valuenow', '0');
     ['EXPENSE', 'CAMPAIGN_TAIL', 'DONATUR_TETAP', 'KEYWORD', 'AI_SEMANTIC', 'UNAUTHORIZED_FALLBACK'].forEach(k => {
       const el = document.getElementById(`rescan-lc-${k}`);
       if (el) el.textContent = '0';
@@ -2614,9 +2863,6 @@ async function execute5LayerRescan(targetIds = null) {
   }
 
   try {
-    // Clear AI cache so newly added programs, keywords, or aliases in Master Data take immediate effect
-    clearAiCache();
-
     // Snapshot for Undo before rescanning
     const snapshotIds = targetRows.map(r => r.id);
     const snapshotPatches = targetRows.map(r => ({ ...r }));
@@ -2628,6 +2874,7 @@ async function execute5LayerRescan(targetIds = null) {
       if (rescanFill) rescanFill.style.width = p + '%';
       if (rescanPct) rescanPct.textContent = p + '%';
       if (rescanLabel) rescanLabel.textContent = `Memproses ${current} / ${total}`;
+      rescanProgressBar?.setAttribute('aria-valuenow', String(p));
       if (counts) {
         Object.keys(counts).forEach(k => {
           const el = document.getElementById(`rescan-lc-${k}`);
@@ -2713,7 +2960,7 @@ document.getElementById('btn-bulk-general').addEventListener('click', () => {
     : [..._selectedIds].filter(id => activeFilteredIdSet.has(id));
   if (!ids.length) return;
   _undoSnapshot = { isDelete: false, ids, patches: getRows().filter(r => ids.includes(r.id)).map(r => ({ ...r })) };
-  bulkUpdateRows(ids, { assignedCoa: sys.umum, newName: coa?.name || 'Infak Umum', assignedProgramId: null, matchedLayer: 'MANUAL_OVERRIDE', isOverridden: true, confidence: 1.0, reasoning: 'Bulk set Infak Umum', isExpense: false });
+  bulkUpdateRows(ids, { assignedCoa: sys.umum, assignedCoaName: coa?.name || 'Infak Umum', newName: coa?.name || 'Infak Umum', assignedProgramId: null, matchedLayer: 'MANUAL_OVERRIDE', isOverridden: true, confidence: 1.0, reasoning: 'Bulk set Infak Umum', isExpense: false });
   _selectedIds.clear();
   _isGlobalSelected = false;
   renderDashboard();
@@ -2926,6 +3173,10 @@ export function initAllStickyScrollbars() {
 
 document.addEventListener('DOMContentLoaded', () => {
   setupDropzone();
+
+  if (!isMasterStoragePersistent() || !isSessionStoragePersistent()) {
+    showToast('Penyimpanan browser tidak tersedia. Perubahan hanya bertahan selama halaman ini terbuka.', 'warning');
+  }
 
   // 1. Restore Filter Controls DOM values from persistent session state
   const curFilter = getFilter();
