@@ -540,6 +540,7 @@ Seluruh temuan kode pada audit ulang telah diperbaiki dan diberi regression test
 - Donatur dengan kecocokan parsial terbaik yang sama masuk karantina dengan bukti `donor_conflict`; kecocokan exact tetap didahulukan.
 - Total program dan kategori tidak lagi memasukkan transaksi `UNAUTHORIZED_FALLBACK`.
 - Backup otomatis terakhir dapat dipulihkan dari tab Backup/Restore. Tombol dinonaktifkan bila backup belum ada.
+- Sesuai keputusan produk 28 September 2026, backup JSON sekarang mencakup API key AI dan impor memulihkannya pada mode timpa maupun gabung. UI menjelaskan bahwa berkas backup berisi kredensial dan harus disimpan secara pribadi.
 - Komentar preset diselaraskan dengan resolver skor/prioritas.
 
 Temuan clean URL GitHub Pages dinyatakan false positive setelah verifikasi langsung: `https://imamwahyudiz.github.io/ziswafierlite/app` merespons dan memuat aplikasi pada URL tanpa ekstensi. Tidak diperlukan perubahan rute tambahan.

@@ -355,16 +355,16 @@ await ok("default preset has schema v2 and no orphan or duplicate references", (
   assert.ok(m.donors.every(d => /^Donatur Contoh/.test(d.name)));
 });
 
-await ok("JSON roundtrip preserves program metadata and excludes AI credentials", () => {
+await ok("JSON roundtrip preserves program metadata and AI credentials", () => {
   store.resetToDefaults();
   const m = store.getMaster();
   m.programs[0].priority = 9;
   m.programs[0].hiddenKeywords = ["varian rahasia"];
   m.programs[0].metadata = { source: "manual" };
-  m.settings.aiApiKey = "must-not-leak";
+  m.settings.aiApiKey = "backup-api-key";
   store.updateMaster(m);
   const json = store.exportConfigToJson();
-  assert.ok(!json.includes("must-not-leak"));
+  assert.strictEqual(JSON.parse(json).settings.aiApiKey, "backup-api-key");
   const preview = store.previewConfigImport(json, "replace");
   assert.strictEqual(preview.schemaVersion, 2);
   assert.ok(preview.changes && preview.changes.coa && preview.changes.programs);
@@ -374,6 +374,16 @@ await ok("JSON roundtrip preserves program metadata and excludes AI credentials"
   assert.strictEqual(restored.priority, 9);
   assert.deepStrictEqual(restored.hiddenKeywords, ["varian rahasia"]);
   assert.deepStrictEqual(restored.metadata, { source: "manual" });
+  assert.strictEqual(store.getMaster().settings.aiApiKey, "backup-api-key");
+});
+
+await ok("JSON merge imports AI credentials from backup", () => {
+  store.resetToDefaults();
+  const current = store.getMaster();
+  current.settings.aiApiKey = "key-lama";
+  store.updateMaster(current);
+  store.importConfigFromJson(JSON.stringify({ settings: { aiApiKey: "key-dari-backup" } }), "merge");
+  assert.strictEqual(store.getMaster().settings.aiApiKey, "key-dari-backup");
 });
 
 await ok("invalid JSON config is rejected atomically", () => {
@@ -450,14 +460,19 @@ await ok("legacy migration repairs duplicate donor IDs", () => {
 
 await ok("automatic config backup can be restored", () => {
   store.resetToDefaults();
-  const originalOrg = store.getMaster().settings.orgName;
+  const original = store.getMaster();
+  const originalOrg = original.settings.orgName;
+  original.settings.aiApiKey = 'key-sebelum-impor';
+  store.updateMaster(original);
   const imported = store.getMaster();
   imported.settings.orgName = 'Organisasi Setelah Impor';
+  imported.settings.aiApiKey = 'key-setelah-impor';
   store.importConfigFromJson(JSON.stringify(imported), 'replace');
   assert.strictEqual(store.hasConfigBackup(), true);
   assert.strictEqual(store.getMaster().settings.orgName, 'Organisasi Setelah Impor');
   store.restoreLastConfigBackup();
   assert.strictEqual(store.getMaster().settings.orgName, originalOrg);
+  assert.strictEqual(store.getMaster().settings.aiApiKey, 'key-sebelum-impor');
 });
 
 await ok("master store falls back safely when localStorage is blocked during initialization", () => {

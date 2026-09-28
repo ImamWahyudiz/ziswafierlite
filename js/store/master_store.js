@@ -1003,7 +1003,6 @@ export function batchDeleteAliases(indices) {
 export function exportConfigToJson() {
   const exported = deepClone(state);
   exported.schemaVersion = CURRENT_SCHEMA_VERSION;
-  exported.settings.aiApiKey = '';
   return JSON.stringify(exported, null, 2);
 }
 
@@ -1029,7 +1028,7 @@ function buildConfigDraft(parsed, mode) {
   if (!['replace', 'merge'].includes(mode)) throw new Error(`Mode impor '${mode}' tidak dikenal.`);
   const base = mode === 'replace' ? deepClone(DEFAULT_MASTER_DATA) : deepClone(state);
   if (parsed.settings && typeof parsed.settings === 'object') {
-    base.settings = normalizeSettings({ ...base.settings, ...parsed.settings, aiApiKey: state.settings.aiApiKey || '' });
+    base.settings = normalizeSettings({ ...base.settings, ...parsed.settings });
   }
   if (mode === 'replace') {
     if (Array.isArray(parsed.coaList)) {

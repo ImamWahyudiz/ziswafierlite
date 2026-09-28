@@ -1512,7 +1512,7 @@ function initiateMasterImport(type, payload, fileName, targetEntity = null) {
       previewText = `<br><br><b>Pratinjau tervalidasi:</b><br>`
         + `Timpa: ${replacePreview.coaCount} COA, ${replacePreview.programCount} program, ${replacePreview.donorCount} donatur <span class="text-muted">(${formatChanges(replacePreview)})</span>.<br>`
         + `Gabung: ${mergePreview.coaCount} COA, ${mergePreview.programCount} program, ${mergePreview.donorCount} donatur <span class="text-muted">(${formatChanges(mergePreview)})</span>.<br>`
-        + `<small>Backup konfigurasi aktif dibuat otomatis sebelum commit. Kredensial AI tidak diimpor atau diekspor.</small>`;
+        + `<small>Backup konfigurasi aktif dibuat otomatis sebelum commit. Kredensial AI di dalam JSON ikut diimpor dan dipulihkan.</small>`;
     }
     promptEl.innerHTML = `Berkas <b>${esc(fileName)}</b> siap diimpor ke <b>${targetLabel}</b>.${previewText}<br><br>Pilih metode impor:`;
   }
@@ -1770,7 +1770,7 @@ const TUTORIAL_CONTENT = {
         </li>
         <li>
           <i class="fa-solid fa-lock text-emerald"></i>
-          <div><strong>Privasi AI</strong>: API Key tersimpan di browser lokal dan tidak masuk berkas backup. Saat AI cloud aktif, hanya keterangan transaksi yang belum terpetakan dan master program yang dikirim langsung ke endpoint resmi pilihan Anda; daftar donatur tidak dikirim.</div>
+          <div><strong>Privasi AI</strong>: API Key tersimpan di browser lokal dan ikut masuk ke berkas backup JSON agar konfigurasi dapat dipulihkan utuh. Simpan berkas backup secara pribadi. Saat AI cloud aktif, hanya keterangan transaksi yang belum terpetakan dan master program yang dikirim langsung ke endpoint resmi pilihan Anda; daftar donatur tidak dikirim.</div>
         </li>
       </ul>`
   },
@@ -1784,11 +1784,11 @@ const TUTORIAL_CONTENT = {
       <ul class="tut-list">
         <li>
           <i class="fa-solid fa-file-export text-accent"></i>
-          <div><strong>Ekspor Config JSON</strong>: unduh dan simpan cadangan seluruh konfigurasi master data ke satu berkas JSON di komputer Anda.</div>
+          <div><strong>Ekspor Config JSON</strong>: unduh seluruh master data, pengaturan AI, dan API key ke satu berkas JSON. Simpan berkas ini secara pribadi karena berisi kredensial.</div>
         </li>
         <li>
           <i class="fa-solid fa-file-import text-cyan"></i>
-          <div><strong>Impor Config JSON</strong>: muat kembali data konfigurasi dari berkas JSON (bisa mode gabung atau timpa).</div>
+          <div><strong>Impor Config JSON</strong>: muat kembali data konfigurasi beserta API key dari berkas JSON (bisa mode gabung atau timpa).</div>
         </li>
         <li>
           <i class="fa-solid fa-rotate-left text-rose"></i>

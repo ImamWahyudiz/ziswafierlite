@@ -412,7 +412,7 @@
                     <input type="text" class="form-control" id="ai-model-name" placeholder="gemini-3.5-flash-lite">
                 </div>
                 <div class="form-group" id="group-api-key">
-                    <label>API Key <span class="text-muted text-xs">(disimpan di browser lokal dan tidak disertakan dalam backup)</span></label>
+                    <label>API Key <span class="text-muted text-xs">(disimpan lokal dan disertakan dalam backup JSON)</span></label>
                     <input type="password" class="form-control" id="ai-api-key" placeholder="AIzaSy... atau sk-...">
                 </div>
                 <div class="form-group" id="group-ollama-endpoint">
@@ -441,20 +441,20 @@
         <!-- TAB: BACKUP -->
         <div class="subtab-panel" id="panel-backup">
             <div class="panel-toolbar">
-                <span class="panel-hint">Simpan & muat konfigurasi master data (COA, Program, Donatur, Alias)</span>
+                <span class="panel-hint">Simpan & muat seluruh konfigurasi, termasuk pengaturan dan API key AI</span>
                 <button class="btn btn-ghost btn-sm ms-auto" data-tutorial="backup" title="Cara kerja tab ini"><i class="fa-solid fa-circle-question"></i> Cara Kerja</button>
             </div>
             <div class="settings-card">
                 <div class="backup-actions">
                     <div class="backup-item">
-                        <div class="backup-label">Ekspor semua master data ke JSON</div>
-                        <button class="btn btn-ghost btn-sm" id="btn-export-json" title="Ekspor semua master data ke berkas JSON">
+                        <div class="backup-label">Ekspor semua konfigurasi dan API key ke JSON</div>
+                        <button class="btn btn-ghost btn-sm" id="btn-export-json" title="Ekspor seluruh konfigurasi beserta API key ke berkas JSON">
                             <i class="fa-solid fa-file-export"></i> <span class="btn-text">Ekspor Config JSON</span>
                         </button>
                     </div>
                     <div class="backup-item">
-                        <div class="backup-label">Impor master data dari JSON</div>
-                        <label class="btn btn-ghost btn-sm" title="Impor master data dari berkas JSON">
+                        <div class="backup-label">Impor semua konfigurasi dan API key dari JSON</div>
+                        <label class="btn btn-ghost btn-sm" title="Impor seluruh konfigurasi beserta API key dari berkas JSON">
                             <i class="fa-solid fa-file-import"></i> <span class="btn-text">Impor Config JSON</span>
                             <input type="file" id="input-import-json" accept=".json" hidden>
                         </label>
