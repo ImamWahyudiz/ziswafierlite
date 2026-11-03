@@ -175,7 +175,7 @@ function categoryForCoa(master, code) {
 }
 
 /** Runs layers 0–4. A blank matchedLayer means the row is eligible for AI. */
-export function classifyDeterministic(tx, master) {
+export function classifyDeterministic(tx, master, options = {}) {
   const result = baseResult(tx, master);
   const programs = master.programs || [];
   const normalizedLabel = normalizeEvidence(result.cleanedLabel);
@@ -195,6 +195,18 @@ export function classifyDeterministic(tx, master) {
       reasoning: amount < 0 ? 'Nominal transaksi negatif (uang keluar).' : 'Keterangan memuat biaya administrasi bank yang eksplisit.',
       evidence: { type: amount < 0 ? 'negative_amount' : 'explicit_bank_fee', value: amount < 0 ? amount : normalizedRaw },
       isExpense: true
+    });
+  }
+
+  // The user's own earlier correction of the same label is the strongest remaining evidence.
+  const learned = options.lookupLearned?.(result.cleanedLabel);
+  if (learned && master.coaList.some(coa => Number(coa.code) === Number(learned.coa))
+    && (!learned.programId || programs.some(item => item.id === learned.programId))) {
+    return assign(result, master, {
+      coa: learned.coa, program: programs.find(item => item.id === learned.programId) || null,
+      layer: 'LEARNED', confidence: 0.97,
+      reasoning: `Sesuai koreksi manual sebelumnya untuk keterangan yang sama (${learned.count}x).`,
+      evidence: { type: 'learned', value: { key: learned.key, count: learned.count } }
     });
   }
 
@@ -346,8 +358,8 @@ function applyAiResult(result, aiResult, master) {
   );
 }
 
-export async function classifySingle(tx, master) {
-  const deterministic = classifyDeterministic(tx, master);
+export async function classifySingle(tx, master, options = {}) {
+  const deterministic = classifyDeterministic(tx, master, options);
   if (deterministic.matchedLayer) return deterministic;
   if (!aiEnabled(master.settings) || !deterministic.cleanedLabel.trim()) {
     return quarantine(deterministic, master, NO_MATCH_REASON);
@@ -360,9 +372,9 @@ export async function classifySingle(tx, master) {
   }
 }
 
-export async function classifyBatch(rows, master, onProgress) {
+export async function classifyBatch(rows, master, onProgress, options = {}) {
   if (!Array.isArray(rows) || !rows.length) return [];
-  const results = rows.map(row => classifyDeterministic(row, master));
+  const results = rows.map(row => classifyDeterministic(row, master, options));
   const pending = [];
   const layerCounts = {};
   let completed = 0;

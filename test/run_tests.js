@@ -1114,6 +1114,51 @@ await ok("fuzzy keyword matching ignores short tokens and two-edit differences",
   assert.strictEqual(detTx("bayar fidxxah ramadhan", 100000).matchedLayer, "");
 });
 
+console.log("== UNIT: LEARNED CORRECTIONS ==");
+const learnedStore = await import("../js/store/learned_store.js");
+const learnedOpts = { lookupLearned: learnedStore.lookupLearned };
+const detLearned = (rawLabel, rawAmount) => classifyDeterministic({ id: "t", rawDate: "2026-01-01", rawLabel, rawAmount }, structuredClone(DEFAULT_MASTER_DATA), learnedOpts);
+await ok("learn key ignores digits, case, and bank prefix noise", () => {
+  const { normalizeLearnKey } = learnedStore;
+  assert.strictEqual(normalizeLearnKey("TRF DARI - Budi - infaq jumat 123456"), normalizeLearnKey("Trf Dari - Budi - Infaq Jumat 987654"));
+  assert.strictEqual(normalizeLearnKey("infaq"), "");
+  assert.strictEqual(normalizeLearnKey(""), "");
+});
+await ok("a learned correction is reused as LEARNED layer, other labels are untouched", () => {
+  learnedStore.clearLearned();
+  assert.strictEqual(detLearned("pembayaran xyz bapak budi", 100000).matchedLayer, "");
+  learnedStore.learnFromCorrection("pembayaran xyz bapak budi", null, 40202201);
+  const r = detLearned("Pembayaran XYZ Bapak Budi 555", 100000);
+  assert.strictEqual(r.matchedLayer, "LEARNED");
+  assert.strictEqual(r.assignedCoa, 40202201);
+  assert.strictEqual(r.confidence, 0.97);
+  assert.strictEqual(r.evidence.type, "learned");
+  assert.strictEqual(detLearned("pembayaran xyz", 100000).matchedLayer, "");
+  assert.strictEqual(detLearned("bapak budi", 100000).matchedLayer, "");
+});
+await ok("learned memory never overrides expense or invalid amount and ignores stale COA", () => {
+  learnedStore.clearLearned();
+  learnedStore.learnFromCorrection("pembayaran xyz bapak budi", null, 40202201);
+  assert.strictEqual(detLearned("pembayaran xyz bapak budi", -5000).matchedLayer, "EXPENSE");
+  assert.strictEqual(detLearned("pembayaran xyz bapak budi", 0).evidence.type, "invalid_amount");
+  learnedStore.learnFromCorrection("lain lagi kegiatan", null, 99999999);
+  assert.strictEqual(detLearned("lain lagi kegiatan", 100000).matchedLayer, "");
+});
+await ok("conflicting corrections for one label disable the learned entry; clearLearned empties memory", () => {
+  learnedStore.clearLearned();
+  learnedStore.learnFromCorrection("pembayaran xyz bapak budi", null, 40202201);
+  learnedStore.learnFromCorrection("pembayaran xyz bapak budi", null, 40202301);
+  assert.strictEqual(learnedStore.lookupLearned("pembayaran xyz bapak budi"), null);
+  learnedStore.clearLearned();
+  assert.strictEqual(learnedStore.lookupLearned("pembayaran xyz bapak budi"), null);
+});
+await ok("classification without learned options is unchanged", () => {
+  learnedStore.clearLearned();
+  learnedStore.learnFromCorrection("pembayaran xyz bapak budi", null, 40202201);
+  assert.strictEqual(detTx("pembayaran xyz bapak budi", 100000).matchedLayer, "");
+  learnedStore.clearLearned();
+});
+
 console.log("== E2E PARITY: sample/inputt.xlsx vs sample/output.xlsx ==");
 let parityPct = -1;
 try {
