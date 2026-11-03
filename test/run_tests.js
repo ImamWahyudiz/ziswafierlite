@@ -1096,6 +1096,24 @@ await ok("zero and non-numeric amounts are quarantined as invalid, valid ones un
   assert.strictEqual(detTx("biaya admin", -6500).matchedLayer, "EXPENSE");
 });
 
+await ok("single-edit typo in a long keyword matches with lower confidence and fuzzy evidence", () => {
+  const exact = detTx("bayar fidyah ramadhan", 100000);
+  assert.strictEqual(exact.matchedLayer, "KEYWORD");
+  for (const typo of ["bayar fidiyah ramadhan", "bayar fidyha ramadhan"]) {
+    const r = detTx(typo, 100000);
+    assert.strictEqual(r.matchedLayer, "KEYWORD", typo);
+    assert.strictEqual(r.assignedCoa, exact.assignedCoa, typo);
+    assert.strictEqual(r.evidence.fuzzy, true, typo);
+    assert.strictEqual(r.confidence, 0.8, typo);
+  }
+  assert.strictEqual(exact.evidence.fuzzy, undefined);
+});
+await ok("fuzzy keyword matching ignores short tokens and two-edit differences", () => {
+  // An empty layer means "no deterministic rule" (AI-eligible, quarantined later).
+  assert.strictEqual(detTx("sumor desa", 100000).matchedLayer, "");
+  assert.strictEqual(detTx("bayar fidxxah ramadhan", 100000).matchedLayer, "");
+});
+
 console.log("== E2E PARITY: sample/inputt.xlsx vs sample/output.xlsx ==");
 let parityPct = -1;
 try {

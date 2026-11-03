@@ -108,19 +108,62 @@ function findDonorDecision(senderName, donors) {
     : { donor: null, conflict: best.map(candidate => candidate.donor) };
 }
 
-function findKeywordDecision(label, programs) {
+const FUZZY_MIN_LENGTH = 6;
+
+/** True when a and b differ by at most one insertion, deletion, substitution or adjacent swap. */
+export function editDistanceAtMostOne(a, b) {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  if (a.length === b.length) {
+    if (a.slice(i + 1) === b.slice(i + 1)) return true; // substitution
+    return a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2); // swap
+  }
+  const [longer, shorter] = a.length > b.length ? [a, b] : [b, a];
+  return longer.slice(i + 1) === shorter.slice(i); // insertion/deletion
+}
+
+function programPriority(program) {
+  return Number.isFinite(Number(program.priority)) ? Number(program.priority) : 5;
+}
+
+function programKeywords(program) {
+  return [...(program.keywords || []), ...(program.hiddenKeywords || [])].map(normalizeEvidence).filter(Boolean);
+}
+
+/** Fallback when nothing matches exactly: single long keyword tokens tolerate one typo. */
+function findFuzzyCandidates(label, programs) {
+  const labelTokens = [...new Set(label.split(' ').filter(token => token.length >= FUZZY_MIN_LENGTH))];
   const candidates = [];
+  if (!labelTokens.length) return candidates;
   for (const program of programs || []) {
     let bestKeyword = '';
-    for (const keyword of [...(program.keywords || []), ...(program.hiddenKeywords || [])]) {
-      const normalizedKeyword = normalizeEvidence(keyword);
+    for (const keyword of programKeywords(program)) {
+      if (keyword.length < FUZZY_MIN_LENGTH || keyword.includes(' ') || keyword.length <= bestKeyword.length) continue;
+      if (labelTokens.some(token => editDistanceAtMostOne(token, keyword))) bestKeyword = keyword;
+    }
+    if (bestKeyword) {
+      const priority = programPriority(program);
+      candidates.push({ program, keyword: bestKeyword, priority, score: priority * 10000 + bestKeyword.length, fuzzy: true });
+    }
+  }
+  return candidates;
+}
+
+function findKeywordDecision(label, programs) {
+  let candidates = [];
+  for (const program of programs || []) {
+    let bestKeyword = '';
+    for (const normalizedKeyword of programKeywords(program)) {
       if (containsPhrase(label, normalizedKeyword) && normalizedKeyword.length > bestKeyword.length) bestKeyword = normalizedKeyword;
     }
     if (bestKeyword) {
-      const priority = Number.isFinite(Number(program.priority)) ? Number(program.priority) : 5;
+      const priority = programPriority(program);
       candidates.push({ program, keyword: bestKeyword, priority, score: priority * 10000 + bestKeyword.length });
     }
   }
+  if (!candidates.length) candidates = findFuzzyCandidates(label, programs);
   candidates.sort((a, b) => b.score - a.score || a.program.id.localeCompare(b.program.id));
   if (!candidates.length) return { candidate: null, conflict: [] };
   const conflict = candidates.filter(candidate => candidate.score === candidates[0].score);
@@ -167,7 +210,7 @@ export function classifyDeterministic(tx, master) {
   const keywordDecision = findKeywordDecision(normalizedLabel, programs);
   if (tailMatches.length === 1) {
     const program = tailMatches[0];
-    const keywordProgram = keywordDecision.candidate?.program;
+    const keywordProgram = keywordDecision.candidate && !keywordDecision.candidate.fuzzy ? keywordDecision.candidate.program : undefined;
     // The approved order keeps the tail code decisive; a contradicting keyword only lowers confidence
     // and is recorded so reviewers can filter these rows.
     const contradicted = Boolean(keywordProgram && keywordProgram.id !== program.id);
@@ -210,7 +253,7 @@ export function classifyDeterministic(tx, master) {
     });
   }
   if (keywordDecision.candidate) {
-    const { program, keyword, score } = keywordDecision.candidate;
+    const { program, keyword, score, fuzzy } = keywordDecision.candidate;
     const category = categoryForCoa(master, program.coaCode);
     if (ZAKAT_RE.test(normalizedLabel) && category !== 'ZAKAT') {
       return quarantine(result, master, `Keterangan menyebut zakat tetapi program '${program.name}' bukan akun zakat.`, {
@@ -229,9 +272,11 @@ export function classifyDeterministic(tx, master) {
       });
     }
     return assign(result, master, {
-      coa: program.coaCode, program, layer: 'KEYWORD', confidence: 0.9,
-      reasoning: `Keterangan cocok dengan kata kunci '${keyword}' pada program ${program.name}.`,
-      evidence: { type: 'keyword', value: keyword, score }
+      coa: program.coaCode, program, layer: 'KEYWORD', confidence: fuzzy ? 0.8 : 0.9,
+      reasoning: fuzzy
+        ? `Keterangan mirip kata kunci '${keyword}' (selisih satu huruf) pada program ${program.name}.`
+        : `Keterangan cocok dengan kata kunci '${keyword}' pada program ${program.name}.`,
+      evidence: fuzzy ? { type: 'keyword', value: keyword, score, fuzzy: true } : { type: 'keyword', value: keyword, score }
     });
   }
 
