@@ -159,12 +159,21 @@ export function classifyDeterministic(tx, master) {
       type: 'tail_conflict', value: tailMatches.map(p => p.id)
     });
   }
+  const keywordDecision = findKeywordDecision(normalizedLabel, programs);
   if (tailMatches.length === 1) {
     const program = tailMatches[0];
+    const keywordProgram = keywordDecision.candidate?.program;
+    // The approved order keeps the tail code decisive; a contradicting keyword only lowers confidence
+    // and is recorded so reviewers can filter these rows.
+    const contradicted = Boolean(keywordProgram && keywordProgram.id !== program.id);
     return assign(result, master, {
-      coa: program.coaCode, program, layer: 'CAMPAIGN_TAIL', confidence: 0.95,
-      reasoning: `Nominal berakhiran kode unik '${program.tailCode}' untuk program ${program.name}.`,
-      evidence: { type: 'tail_code', value: program.tailCode }
+      coa: program.coaCode, program, layer: 'CAMPAIGN_TAIL',
+      confidence: contradicted ? 0.8 : keywordProgram ? 0.97 : 0.95,
+      reasoning: `Nominal berakhiran kode unik '${program.tailCode}' untuk program ${program.name}.`
+        + (contradicted ? ` Peringatan: kata kunci '${keywordDecision.candidate.keyword}' mengarah ke program ${keywordProgram.name}; mohon periksa.` : ''),
+      evidence: contradicted
+        ? { type: 'tail_code', value: program.tailCode, contradictedByKeywordProgramId: keywordProgram.id }
+        : { type: 'tail_code', value: program.tailCode }
     });
   }
 
@@ -190,7 +199,6 @@ export function classifyDeterministic(tx, master) {
     });
   }
 
-  const keywordDecision = findKeywordDecision(normalizedLabel, programs);
   if (keywordDecision.conflict.length > 1) {
     return quarantine(result, master, `Kata kunci memiliki skor sama pada beberapa program: ${keywordDecision.conflict.map(c => c.program.name).join(', ')}.`, {
       type: 'keyword_conflict', value: keywordDecision.conflict.map(c => ({ programId: c.program.id, keyword: c.keyword, score: c.score }))

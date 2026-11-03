@@ -28,7 +28,6 @@
     { "label": "Trf Dari - Donatur Contoh 01 - zakat fitrah", "amount": 100000, "expect": { "notCoa": [40201001] } }
   ],
   "pendingCases": [
-    { "task": 3, "label": "Zakat fitrah keluarga", "amount": 50302, "expect": { "quarantine": true, "evidence": "tail_keyword_conflict" } },
     { "task": 4, "label": "infaq", "amount": 0, "expect": { "quarantine": true, "evidence": "invalid_amount" } }
   ]
 }

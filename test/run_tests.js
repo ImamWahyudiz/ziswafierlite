@@ -1055,6 +1055,22 @@ await ok("donor sending label without fund signal still uses default program", (
   assert.strictEqual(detTx("Trf Dari - Donatur Contoh 01 - transfer", 100000).assignedProgramId, "prog-sdq-subuh");
 });
 
+await ok("tail code contradicted by keyword keeps approved order but is flagged with lower confidence", () => {
+  const r = detTx("Zakat fitrah keluarga", 50302);
+  assert.strictEqual(r.matchedLayer, "CAMPAIGN_TAIL");
+  assert.strictEqual(r.assignedProgramId, "prog-gizi");
+  assert.strictEqual(r.confidence, 0.8);
+  assert.strictEqual(r.evidence.contradictedByKeywordProgramId, "prog-zkt-fitrah");
+});
+await ok("tail code agreeing with keyword is boosted and tail alone still decides", () => {
+  const agree = detTx("Zakat fitrah", 50007);
+  assert.strictEqual(agree.matchedLayer, "CAMPAIGN_TAIL");
+  assert.strictEqual(agree.confidence, 0.97);
+  const alone = detTx("transfer", 50302);
+  assert.strictEqual(alone.matchedLayer, "CAMPAIGN_TAIL");
+  assert.strictEqual(alone.assignedProgramId, "prog-gizi");
+});
+
 console.log("== E2E PARITY: sample/inputt.xlsx vs sample/output.xlsx ==");
 let parityPct = -1;
 try {
