@@ -1,0 +1,34 @@
+{
+  "cases": [
+    { "label": "Biaya admin bulanan", "amount": -6500, "expect": { "layer": "EXPENSE", "coa": 60100008 } },
+    { "label": "admin bank", "amount": 5000, "expect": { "layer": "EXPENSE" } },
+    { "label": "Donasi untuk biaya sekolah", "amount": 100000, "expect": { "quarantine": false, "notCoa": [60100008] } },
+    { "label": "transfer", "amount": 50302, "expect": { "layer": "CAMPAIGN_TAIL", "coa": 40202302 } },
+    { "label": "transfer", "amount": 25104, "expect": { "layer": "CAMPAIGN_TAIL", "coa": 40202104 } },
+    { "label": "Trf Dari - Donatur Contoh 02 - transfer", "amount": 100000, "expect": { "layer": "DONATUR_TETAP", "coa": 40100101 } },
+    { "label": "Trf Dari - Donatur Contoh 03 - transfer", "amount": 100000, "expect": { "layer": "DONATUR_TETAP", "coa": 40202201 } },
+    { "label": "Zakat fitrah keluarga", "amount": 100000, "expect": { "layer": "KEYWORD", "coa": 40100102 } },
+    { "label": "zakat mal bulan ini", "amount": 100000, "expect": { "layer": "KEYWORD", "coa": 40100101 } },
+    { "label": "wakaf pesantren", "amount": 100000, "expect": { "layer": "KEYWORD", "coa": 40203201 } },
+    { "label": "wakaf tunai", "amount": 100000, "expect": { "layer": "KEYWORD", "coa": 40203000 } },
+    { "label": "beasiswa anak", "amount": 100000, "expect": { "layer": "KEYWORD", "coa": 40202201 } },
+    { "label": "bantuan palestina", "amount": 100000, "expect": { "layer": "KEYWORD", "coa": 40202101 } },
+    { "label": "bayar fidyah", "amount": 100000, "expect": { "layer": "KEYWORD", "coa": 40202602 } },
+    { "label": "kurban sapi", "amount": 100000, "expect": { "layer": "KEYWORD", "coa": 40202601 } },
+    { "label": "sumur bor desa", "amount": 100000, "expect": { "layer": "KEYWORD", "coa": 40202502 } },
+    { "label": "TRF DARI - JAMAL", "amount": 100000, "expect": { "notCoa": [40100101] } },
+    { "label": "Nama Yayasan Contoh", "amount": 100000, "expect": { "layer": "ORG_ALIAS", "coa": 40201001 } },
+    { "label": "sumbangan", "amount": 100000, "expect": { "layer": "DONASI_UMUM", "coa": 40201001 } },
+    { "label": "zakat", "amount": 100000, "expect": { "quarantine": true } },
+    { "label": "wakaf", "amount": 100000, "expect": { "layer": "KEYWORD", "coa": 40203000 } },
+    { "label": "pembayaran xyz", "amount": 100000, "expect": { "quarantine": true } },
+    { "label": "", "amount": 100000, "expect": { "quarantine": true } },
+    { "label": "QRIS 12345 Toko Berkah", "amount": 25000, "expect": { "quarantine": true } }
+  ],
+  "pendingCases": [
+    { "task": 2, "label": "sumbangan masjid kampung", "amount": 100000, "expect": { "quarantine": true, "evidence": "restricted_keyword_without_signal" } },
+    { "task": 2, "label": "Trf Dari - Donatur Contoh 01 - zakat fitrah", "amount": 100000, "expect": { "notCoa": [40201001] } },
+    { "task": 3, "label": "Zakat fitrah keluarga", "amount": 50302, "expect": { "quarantine": true, "evidence": "tail_keyword_conflict" } },
+    { "task": 4, "label": "infaq", "amount": 0, "expect": { "quarantine": true, "evidence": "invalid_amount" } }
+  ]
+}

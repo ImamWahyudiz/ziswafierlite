@@ -1022,6 +1022,19 @@ await ok("AI provider and threshold normalization stays conservative", () => {
 });
 
 
+console.log("== UNIT: CLASSIFIER EVAL HARNESS ==");
+const { evaluate } = await import("./classifier_eval.js");
+const evalFixture = JSON.parse(readFileSync(new URL("./fixtures/classifier_cases.json", import.meta.url), "utf8"));
+const detTx = (rawLabel, rawAmount) => classifyDeterministic({ id: "t", rawDate: "2026-01-01", rawLabel, rawAmount }, structuredClone(DEFAULT_MASTER_DATA));
+await ok("classifier eval harness reports coverage and precision on fixtures", () => {
+  const report = evaluate(evalFixture.cases, structuredClone(DEFAULT_MASTER_DATA), classifyDeterministic);
+  console.log(`    eval: total=${report.total} decided=${report.decided} coverage=${report.coverage.toFixed(2)} precision=${report.precision.toFixed(2)}`);
+  assert.strictEqual(report.total, evalFixture.cases.length);
+  assert.deepStrictEqual(report.wrongCases, []);
+  assert.strictEqual(report.precision, 1);
+  assert.ok(report.coverage >= 0.5);
+});
+
 console.log("== E2E PARITY: sample/inputt.xlsx vs sample/output.xlsx ==");
 let parityPct = -1;
 try {
