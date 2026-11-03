@@ -37,6 +37,14 @@ Specialists edit only what they own and hand anything else back to lead. Develop
 6. **Integrate.** Lead reads the full diff against the brief, re-runs the gates, and confirms every acceptance item has evidence and every changed behaviour is documented in `AGENTS.md`, `README.md`, or the landing FAQ where those describe it.
 7. **Ship.** Commit on a branch, staging explicit paths because the checkout holds untracked local scripts. Open a PR and report it. A push to `main` deploys production, so merging waits for the user's word.
 
+## Session hygiene
+
+The main session is lead and runs on Sonnet. Lead writes briefs, routes, reviews diffs, and orchestrates; the build work happens in subagent contexts that return only their reports.
+
+- **`/compact`:** once the conversation passes 15–20 turns, lead asks the user to run `/compact`.
+- **`/clear`:** after a subagent's report is integrated (step 6) and the work is committed, lead asks the user to run `/clear` before the next task. Clearing earlier drops the brief and the pending reports, so lead restates the brief first if work is still in flight.
+- Long outputs (test logs, diffs) stay inside the subagent, and its report carries the result lines only.
+
 ## Brief
 
 ```
