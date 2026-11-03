@@ -187,6 +187,21 @@ Design rationale: standard options for noisy short Indonesian transaction text a
 - n-gram kNN over learned corrections, only if Task 1 metrics show exact reuse leaves a large repeat-label tail.
 - Concatenated words (`infaqjumat`) and Indonesian stemming; only with evidence from the sender/label histograms.
 
+## Execution log (2026-11-03)
+
+All 8 tasks executed inline on branch `worktree-classifier-plan`; `node test/run_tests.js` went 67 -> 85 passed, 0 failed. Dataset checks (`docs/audit-datasets.mjs`, AI off, 3,999 rows) kept `unknownAccounts 0` and `singleBatchMismatch 0` throughout.
+
+| Task | Result | Deviation from plan |
+|---|---|---|
+| 1 Eval harness | 28 synthetic cases, coverage 0.75, precision 1.00 | Fixture grew with each task; `pendingCases` ended empty. |
+| 2 Restricted-fund guards | 32 of 3,999 rows moved KEYWORD -> quarantine (1,293 -> 1,261) | No separate `donor_fund_conflict` evidence: a conflicting donor falls through to the keyword layer, which decides or quarantines. |
+| 3 Tail vs keyword | 18 of 107 tail rows are contradicted by a keyword | **Changed.** Quarantining contradicted tails broke the audit's approved order (existing test "tail then donor before keyword"). Kept tail decisive; contradicted tails get confidence 0.8 + `evidence.contradictedByKeywordProgramId`. Owner decision needed: promote to quarantine once a golden set shows which signal is right. |
+| 4 Invalid amounts | 0 dataset rows affected | None. |
+| 5 Sender patterns | Sender rate 79.7% -> 85.9% (3,186 -> 3,437 of 3,999) | Patterns derived from the real shapes (BI-FAST CR, SWITCHING CR, `TRF DARI - <ref> - <name>`). 433 of the 562 remaining misses are QRIS aggregator rows with no person. The `Partner` column is empty on every miss, so a partner fallback would not help on this data. |
+| 6 Fuzzy keyword | 12 rows, all genuine misspellings (e.g. sedeqah, bismilah, fitraah) | None. Fuzzy hits are excluded from the tail cross-check. |
+| 7 LEARNED layer | Engine + store tested; UI wired | Learning happens only on the two single-row COA pickers, not on bulk actions or when parking a row in Unauthorized/Beban. No progress-counter spans for `LEARNED` (same as `ORG_ALIAS`). **Not verified in a browser** (no browser tool in this session): click-through of correct -> re-upload -> badge and the clear button is still to do. |
+| 8 Docs | `AGENTS.md`, `CLAUDE.md` synced | README left as-is (conceptual "5-Layer" naming). |
+
 ## Self-review
 
 - Coverage: W1-W2 -> Task 2, W3 -> 3, W4 -> 4, W5 -> 5, W6 -> 6, W7 -> 1, W8 -> 7, W10 -> 8, W9 backlog.

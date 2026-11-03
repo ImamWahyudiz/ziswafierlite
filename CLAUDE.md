@@ -24,13 +24,16 @@ Engine modules rely on `globalThis.XLSX`; `test/run_tests.js` loads the vendored
 
 `js/engine/classifier.js` exports `classifyDeterministic(tx, master)`, used by both `classifySingle` and `classifyBatch` (and by upload and 5-layer rescan in `app.js`). It returns a result with `matchedLayer`; an empty `matchedLayer` means "eligible for AI". Actual decision order (this is **not** the L1..L5 numbering in the README/AGENTS):
 
-1. Sanitize (`sanitizer.js` `cleanTransactionText`: strips bank noise, extracts sender name, removes company aliases)
-2. `EXPENSE`: negative amount or explicit bank-fee phrase (NOT the bare word "biaya")
-3. `CAMPAIGN_TAIL`: amount's trailing digits equal a program `tailCode`; several matches -> quarantine
-4. `DONATUR_TETAP`: sender matches a registered donor (exact, then token-subset; ties -> quarantine)
-5. `KEYWORD`: whole-phrase match, score = `priority*10000 + keyword length`; equal top scores -> quarantine; zakat/wakaf signal vs program COA `category` mismatch -> quarantine
-6. `ORG_ALIAS`, restricted-fund-without-program (quarantine), `DONASI_UMUM`
-7. Optional AI (`ai_matcher.js`), then quarantine to `settings.defaultUnauthorizedCoa` (layer `UNAUTHORIZED_FALLBACK`)
+1. Sanitize (`sanitizer.js` `cleanTransactionText`: strips bank noise, extracts sender via the `SENDER_PATTERNS` table, removes company aliases)
+2. Zero/non-numeric amount -> quarantine (`invalid_amount`); then `EXPENSE`: negative amount or explicit bank-fee phrase (NOT the bare word "biaya")
+3. `LEARNED`: exact normalized label the user already corrected (`store/learned_store.js`; caller passes `options.lookupLearned`, so the engine stays storage-free)
+4. `CAMPAIGN_TAIL`: amount's trailing digits equal a program `tailCode`; several matches -> quarantine; a keyword pointing at a different program lowers confidence to 0.8 (`evidence.contradictedByKeywordProgramId`) but the tail still wins (approved order)
+5. `DONATUR_TETAP`: sender matches a registered donor (exact, then token-subset; ties -> quarantine); skipped if the label has a zakat/wakaf signal the donor's default program category does not match
+6. `KEYWORD`: whole-phrase match, score = `priority*10000 + keyword length`; equal top scores -> quarantine; if nothing matches exactly, single-word keywords of 6+ chars tolerate one typo (confidence 0.8, `evidence.fuzzy`); ZAKAT/WAKAF programs need an explicit fund signal in label or keyword, and a signal/category mismatch -> quarantine
+7. `ORG_ALIAS`, restricted-fund-without-program (quarantine), `DONASI_UMUM`
+8. Optional AI (`ai_matcher.js`), then quarantine to `settings.defaultUnauthorizedCoa` (layer `UNAUTHORIZED_FALLBACK`)
+
+An empty `matchedLayer` from `classifyDeterministic` means "no rule" (AI-eligible); `classifySingle/Batch` turn it into quarantine. `test/classifier_eval.js` + `test/fixtures/classifier_cases.json` hold labelled cases: add one when you change resolver behaviour. `docs/audit-sender-coverage.mjs` reports sender-extraction rate on the local datasets.
 
 Every result carries structured `evidence` (`tail_code`, `donor`, `keyword`, `*_conflict`, `ai`, ...). Keep fail-closed behaviour: anything ambiguous goes to quarantine, never to an array-order pick.
 
@@ -40,8 +43,8 @@ Data flow: `excel_adapter.parseBankStatement` -> `classifyBatch(rows, master)` -
 
 `js/app.js` (~3,200 lines) is the single UI controller; there is no component split.
 
-## Stale docs
+## Docs
 
-- `AGENTS.md` still describes the old 5-layer L1..L5 order, "TRF KE -> expense", and ~2,200-line `app.js`; the code differs (see above).
-- `docs/AUDIT-REPO-2026-09-27.md` is the authoritative audit + stage log (Stages 1-5 done; Stage 6 = golden accuracy/live-AI verification still open).
-- Open classifier work lives in `docs/superpowers/plans/2026-11-03-classifier-hardening.md`.
+- `README.md` still uses the conceptual "5-Layer" naming; the order above is what runs.
+- `docs/AUDIT-REPO-2026-09-27.md` is the audit + stage log (Stages 1-5 done; Stage 6 = golden accuracy/live-AI verification still open).
+- `docs/superpowers/plans/2026-11-03-classifier-hardening.md` is the classifier hardening plan with its execution log (Tasks 1-8 done; backlog remains).

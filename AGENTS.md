@@ -26,23 +26,31 @@ Two HTML entry points:
 
 Clean URL: `/app` serves `app.html` (via `serve.mjs` rewrite + `vercel.json`).
 
-### 5-Layer Classification Pipeline (`js/engine/classifier.js`)
+### Classification Pipeline (`js/engine/classifier.js`)
+
+One shared resolver, `classifyDeterministic(tx, master, options)`, serves single, batch, upload and rescan. Actual decision order (the README's "5-Layer" naming is conceptual):
 
 ```mermaid
 flowchart LR
-    L0["L0 Sanitizer"] --> L1["L1 Expense"]
-    L1 --> L2["L2 Tail Code"]
-    L2 --> L3["L3 Donor"]
-    L3 --> L4["L4 Keyword"]
-    L4 --> L5["L5 AI / Unauthorized Fallback"]
+    S["Sanitizer"] --> X["EXPENSE"]
+    X --> L["LEARNED"]
+    L --> T["CAMPAIGN_TAIL"]
+    T --> D["DONATUR_TETAP"]
+    D --> K["KEYWORD (exact, then 1-typo fuzzy)"]
+    K --> O["ORG_ALIAS / DONASI_UMUM"]
+    O --> A["AI_SEMANTIC (optional)"]
+    A --> U["UNAUTHORIZED_FALLBACK"]
 ```
 
-- L0: Strip bank noise (BI-FAST/RTGS/QRIS), extract sender name, filter company aliases
-- L1: Negative amount or "TRF KE" → expense COA 60100008
-- L2: Match last-3-digits of amount to program tail codes
-- L3: Match sender name to registered donors
-- L4: Match keywords in label to programs
-- L5: AI semantic (optional, Ollama/Gemini/OpenAI) or fallback to 40201000 Unauthorized
+- Sanitizer: strip bank noise, extract sender via the `SENDER_PATTERNS` table (BI-FAST, TRF DARI, BCA, BI-FAST/SWITCHING CR), remove company aliases
+- `EXPENSE`: negative amount or explicit bank-fee phrase (not the bare word "biaya", not "TRF KE"). Zero/non-numeric amounts are quarantined (`invalid_amount`)
+- `LEARNED`: exact normalized label previously corrected by the user (`js/store/learned_store.js`, key `ziswaf_learned_v1`); caller passes `options.lookupLearned`
+- `CAMPAIGN_TAIL`: trailing digits equal a program tail code; several matches quarantine; a contradicting keyword lowers confidence to 0.8 and is recorded in `evidence`
+- `DONATUR_TETAP`: sender matches a registered donor; skipped when the label carries a zakat/wakaf signal that the donor's default program does not match
+- `KEYWORD`: whole-phrase score `priority*10000 + keyword length`; ties quarantine; restricted (ZAKAT/WAKAF) programs need an explicit fund signal in the label or keyword
+- AI (Ollama/Gemini/OpenAI, off by default) may return only a master `program_id`; everything else falls to `settings.defaultUnauthorizedCoa`
+
+Ambiguity is always quarantined with structured `evidence`, never resolved by array order. See `CLAUDE.md` and `docs/superpowers/plans/2026-11-03-classifier-hardening.md`.
 
 ### Key source files
 
@@ -50,13 +58,14 @@ flowchart LR
 |------|------|
 | `js/engine/sanitizer.js` | L0 text cleaning, input sanitizers (`sanitizeInputText`, `sanitizeSlug`, `sanitizePhone`, `sanitizeCoaCode`) |
 | `js/engine/classifier.js` | `classifySingle()`, `classifyBatch()` — the 5-layer pipeline |
-| `js/engine/ai_matcher.js` | L5 AI integration (Ollama, Gemini, OpenAI) |
+| `js/engine/ai_matcher.js` | Optional AI layer (Ollama, Gemini, OpenAI) |
+| `js/store/learned_store.js` | Memory of manual COA corrections (`LEARNED` layer) |
 | `js/services/excel_adapter.js` | XLSX/CSV parsing + SIAK export |
 | `js/store/master_store.js` | Master data (COA, programs, donors, aliases) in localStorage |
 | `js/store/session_store.js` | Transaction rows, filtering, pagination, sorting |
 | `js/config/default_presets.js` | Default master data (`DEFAULT_MASTER_DATA`) |
 | `js/vendor/xlsx.full.min.js` | Vendored SheetJS — **do not replace without checking tests** |
-| `js/app.js` | Main app logic (~2200 lines, single file) |
+| `js/app.js` | Main app logic (~3,200 lines, single file) |
 | `js/landing.js` | Landing page interactivity |
 
 ### CSS
@@ -78,7 +87,9 @@ Tests are in `test/run_tests.js`. No test framework — just `node:assert` + man
 
 **Critical:** Engine modules (`classifier.js`, `sanitizer.js`) use `globalThis.XLSX` internally. Tests set this up via `createRequire` before importing. If you add XLSX-dependent code to engine modules, ensure tests still load XLSX first.
 
-**E2E parity check** (lines 381-433): Compares `sample/inputt.xlsx` → classified output against `sample/output.xlsx` golden file. Files are in `.gitignore` (`sample/`), so this test is skipped when absent. Parity ≥50% required.
+**Classifier evaluation:** `test/classifier_eval.js` + `test/fixtures/classifier_cases.json` score synthetic labelled cases (coverage/precision); add a case there when changing resolver behaviour.
+
+**E2E parity check** (last block of `test/run_tests.js`): Compares `sample/inputt.xlsx` → classified output against `sample/output.xlsx` golden file. Files are in `.gitignore` (`sample/`), so this test is skipped when absent. Parity ≥50% required.
 
 **Adding tests:** Add `await ok("test name", () => { ... })` blocks. The `ok` function wraps assertions in promises and tracks pass/fail counts. Tests run serially.
 
