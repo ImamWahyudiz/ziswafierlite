@@ -1022,6 +1022,21 @@ await ok("AI provider and threshold normalization stays conservative", () => {
 });
 
 
+console.log("== UNIT: SENDER PATTERNS ==");
+await ok("sender extracted from TRF DARI with numeric reference segment", () => {
+  assert.strictEqual(cleanTransactionText("TRF DARI - 123456 - BUDI SANTOSO", []).extractedSenderName, "BUDI SANTOSO");
+});
+await ok("sender extracted from BI-FAST CR and SWITCHING CR formats", () => {
+  assert.strictEqual(cleanTransactionText("BI-FAST CR TRANSFER DR 100426 BUDI SANTOSO", []).extractedSenderName, "BUDI SANTOSO");
+  assert.strictEqual(cleanTransactionText("SWITCHING CR TRF DR 100426 SITI AMINAH", []).extractedSenderName, "SITI AMINAH");
+  assert.strictEqual(cleanTransactionText("SWITCHING CR TRANSFER DR 100426 SITI AMINAH", []).extractedSenderName, "SITI AMINAH");
+});
+await ok("QRIS aggregator and merchant labels have no person sender", () => {
+  assert.strictEqual(cleanTransactionText("QR DSKL QURBAN", []).extractedSenderName, null);
+  assert.strictEqual(cleanTransactionText("QR 123 456 MASJID ISLAM CENTER", []).extractedSenderName, null);
+  assert.strictEqual(cleanTransactionText("BIAYA PEMINDAHBUKUAN E-BANKING", []).extractedSenderName, null);
+});
+
 console.log("== UNIT: CLASSIFIER EVAL HARNESS ==");
 const { evaluate } = await import("./classifier_eval.js");
 const evalFixture = JSON.parse(readFileSync(new URL("./fixtures/classifier_cases.json", import.meta.url), "utf8"));

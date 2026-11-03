@@ -52,45 +52,32 @@ export function cleanTransactionText(rawLabel, companyAliases) {
   const nameFromNotes = (notes) => {
     const segs = notes.replace(/dana\d{8}[a-z0-9]+/gi, '').split('-').map((s) => s.trim()).filter(Boolean);
     let i = 0;
-    while (i < segs.length - 1 && BANKISH.test(segs[i])) i++;
+    // Skip bank/e-wallet names and pure reference numbers ("Trf Dari - 123456 - NAME").
+    while (i < segs.length - 1 && (BANKISH.test(segs[i]) || /^\d+$/.test(segs[i]))) i++;
     return segs[i] || '';
   };
 
-  let extractedSenderName = null;
+  // First matching pattern wins. Order matters. Add new bank formats here, one entry each.
+  const NAME = "([A-Za-z][\\w\\s.,'-]{1,60})";
+  const SENDER_PATTERNS = [
+    // "BIFAST - Trf Dari - {bank?} - {name} - {notes}"
+    { re: /^bifast\s*-\s*trf\s*dari\s*-\s*([^-]+?)\s*-\s*(.+)$/i, extract: (m) => nameFromNotes(m[2]) },
+    // "Trf Dari - {rest}"
+    { re: /^trf\s*dari\s*-\s*(.+)$/i, extract: (m) => nameFromNotes(m[1]) },
+    // "{prefix} - Trf Dari - {rest}"  e.g. "100426 - Trf Dari - Amelia"
+    { re: /^.+?\s*-\s*trf\s*dari\s*-\s*(.+)$/i, extract: (m) => nameFromNotes(m[1]) },
+    // "{prefix} {amount} {Name}" e.g. "0102/Ftscy/Ws95271 50000.00 Rio Kurnia Setyawa"
+    { re: new RegExp('\\d+\\.\\d{2}\\s+' + NAME + '$'), extract: (m) => m[1].trim() },
+    // "{MM/DD} {TRX-CODE} {Name}"  e.g. "02/07 Zn2W1 Abdul Ridwan" (BCA format)
+    { re: new RegExp('^\\d{2}\\/\\d{2}\\s+\\S+\\s+' + NAME + '$'), extract: (m) => m[1].trim() },
+    // "BI-FAST CR TRANSFER DR {ref} {Name}" and "SWITCHING CR TRF|TRANSFER DR {ref} {Name}"
+    { re: new RegExp('^(?:bi-?fast|switching)\\s+cr\\s+(?:transfer|trf)\\s+(?:dr\\s+)?\\d+\\s+' + NAME + '$', 'i'), extract: (m) => m[1].trim() }
+  ];
 
-  // Pattern 1: "BIFAST - Trf Dari - {bank?} - {name} - {notes}"
-  const regex1 = /^bifast\s*-\s*trf\s*dari\s*-\s*([^-]+?)\s*-\s*(.+)$/i;
-  const match1 = workingLabel.match(regex1);
-  if (match1) {
-    extractedSenderName = nameFromNotes(match1[2]);
-  } else {
-    // Pattern 2: starts with "Trf Dari - {rest}"
-    const regex2 = /^trf\s*dari\s*-\s*(.+)$/i;
-    const match2 = workingLabel.match(regex2);
-    if (match2) {
-      extractedSenderName = nameFromNotes(match2[1]);
-    } else {
-      // Pattern 3: "{prefix} - Trf Dari - {rest}"  e.g. "100426 - Trf Dari - Amelia"
-      const regex3 = /^.+?\s*-\s*trf\s*dari\s*-\s*(.+)$/i;
-      const match3 = workingLabel.match(regex3);
-      if (match3) {
-        extractedSenderName = nameFromNotes(match3[1]);
-      } else {
-// Pattern 4: "{prefix} {amount} {Name}" e.g. "0102/Ftscy/Ws95271 50000.00 Rio Kurnia Setyawa"
-      const regex4 = /\d+\.\d{2}\s+([A-Za-z][\w\s.,'-]{1,60})$/;
-      const match4 = workingLabel.match(regex4);
-      if (match4) {
-        extractedSenderName = match4[1].trim();
-      } else {
-          // Pattern 5: "{MM/DD} {TRX-CODE} {Name}"  e.g. "02/07 Zn2W1 Abdul Ridwan" (BCA format)
-          const regex5 = /^\d{2}\/\d{2}\s+\S+\s+([A-Za-z][\w\s.,'-]{1,60})$/;
-          const match5 = workingLabel.match(regex5);
-          if (match5) {
-            extractedSenderName = match5[1].trim();
-          }
-        }
-      }
-    }
+  let extractedSenderName = null;
+  for (const pattern of SENDER_PATTERNS) {
+    const match = workingLabel.match(pattern.re);
+    if (match) { extractedSenderName = pattern.extract(match); break; }
   }
 
   const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
