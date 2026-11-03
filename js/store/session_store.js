@@ -328,6 +328,8 @@ export function getFilteredSorted() {
       result = result.filter(r => r.matchedLayer === 'ORG_ALIAS');
     } else if (filterCategory === 'AI_SEMANTIC') {
       result = result.filter(r => r.matchedLayer === 'AI_SEMANTIC');
+    } else if (filterCategory === 'LEARNED') {
+      result = result.filter(r => r.matchedLayer === 'LEARNED');
     }
   }
 

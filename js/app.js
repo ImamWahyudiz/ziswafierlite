@@ -8,6 +8,7 @@ import {
 } from "./store/master_store.js";
 import { sanitizeInputText, sanitizeSlug, sanitizePhone, sanitizeCoaCode } from "./engine/sanitizer.js";
 import { classifyBatch } from "./engine/classifier.js";
+import { learnFromCorrection, lookupLearned, clearLearned, getLearnedCount } from "./store/learned_store.js";
 import { testAIConnection, clearAiCache, resolveAiModel } from "./engine/ai_matcher.js";
 import { parseBankStatement, exportOdooExcel, exportOdooCsv } from "./services/excel_adapter.js";
 import {
@@ -1444,6 +1445,14 @@ document.getElementById('btn-export-json').addEventListener('click', () => {
   showToast('Config JSON diekspor', 'success');
 });
 
+document.getElementById('btn-clear-learned')?.addEventListener('click', () => {
+  const count = getLearnedCount();
+  if (!count) { showToast('Memori koreksi sudah kosong', 'info'); return; }
+  if (!confirm(`Hapus ${count} memori koreksi manual? Klasifikasi berikutnya tidak lagi memakainya.`)) return;
+  clearLearned();
+  showToast('Memori koreksi dihapus', 'success');
+});
+
 document.getElementById('btn-restore-auto-backup')?.addEventListener('click', () => {
   if (!confirm('Pulihkan backup otomatis terakhir dan ganti konfigurasi aktif?')) return;
   try {
@@ -1648,8 +1657,17 @@ document.getElementById('btn-merge-file').addEventListener('click', () => {
 const LAYER_LABELS = {
   EXPENSE: 'Beban', CAMPAIGN_TAIL: 'Kode Ekor', DONATUR_TETAP: 'Donatur Tetap',
   KEYWORD: 'Keyword', AI_SEMANTIC: 'AI', UNAUTHORIZED_FALLBACK: 'Unauthorized', MANUAL_OVERRIDE: 'Manual',
-  ORG_ALIAS: 'Yayasan'
+  ORG_ALIAS: 'Yayasan', LEARNED: 'Dipelajari'
 };
+
+// Remember a manual single-row COA pick so the same label is reused next time (see learned_store.js).
+// Parking a row in Unauthorized/Beban is not a classification lesson, so it is not learned.
+function learnFromRowCorrection(rowId, newCoa, master) {
+  const sys = getSystemCodes(master);
+  if (newCoa === sys.unauth || newCoa === sys.expense) return;
+  const row = getRows().find(r => r.id === rowId);
+  if (row) learnFromCorrection(row.cleanedLabel || row.rawLabel, null, newCoa);
+}
 
 const TUTORIAL_CONTENT = {
   coa: {
@@ -1851,7 +1869,7 @@ async function processFile(file, merge, preparedRows = null) {
           if (el) el.textContent = counts[k];
         });
       }
-    });
+    }, { lookupLearned });
 
     // Update final layer counters for both progress & done screen
     const finalCounts = { EXPENSE: 0, CAMPAIGN_TAIL: 0, DONATUR_TETAP: 0, KEYWORD: 0, AI_SEMANTIC: 0, UNAUTHORIZED_FALLBACK: 0 };
@@ -1964,6 +1982,7 @@ function setupReportCategoryDropdown(currentVal = 'ALL') {
       { value: 'EXPENSE', label: 'Beban / Pengeluaran', badge: String(sys.expense) },
       { value: 'ORG_ALIAS', label: 'Alias Lembaga / Yayasan', badge: 'Yayasan' },
       { value: 'AI_SEMANTIC', label: 'Rekomendasi AI', badge: 'AI' },
+      { value: 'LEARNED', label: 'Dipelajari dari Koreksi Manual', badge: 'Dipelajari' },
       { value: 'MANUAL_OVERRIDE', label: 'Koreksi Manual', badge: 'Manual' }
     ];
     },
@@ -2644,6 +2663,7 @@ function initGlobalCoaPicker() {
     const coaEntry = master.coaList.find(c => c.code === newCoa);
 
     preserveScroll(() => {
+      learnFromRowCorrection(rowId, newCoa, master);
       updateRow(rowId, {
         assignedCoa: newCoa,
         assignedCoaName: coaEntry?.name || String(newCoa),
@@ -2727,6 +2747,7 @@ function onCoaChange(e) {
   const master = getMaster();
   const coaEntry = master.coaList.find(c => c.code === newCoa);
   preserveScroll(() => {
+    learnFromRowCorrection(id, newCoa, master);
     updateRow(id, {
       assignedCoa: newCoa,
       assignedCoaName: coaEntry?.name || String(newCoa),
@@ -2881,7 +2902,7 @@ async function execute5LayerRescan(targetIds = null) {
           if (el) el.textContent = counts[k];
         });
       }
-    });
+    }, { lookupLearned });
 
     // Brief delay to let amil see 100% completion
     await new Promise(resolve => setTimeout(resolve, 350));
