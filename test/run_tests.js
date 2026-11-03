@@ -1031,6 +1031,18 @@ await ok("sender extracted from BI-FAST CR and SWITCHING CR formats", () => {
   assert.strictEqual(cleanTransactionText("SWITCHING CR TRF DR 100426 SITI AMINAH", []).extractedSenderName, "SITI AMINAH");
   assert.strictEqual(cleanTransactionText("SWITCHING CR TRANSFER DR 100426 SITI AMINAH", []).extractedSenderName, "SITI AMINAH");
 });
+await ok("donation note words are cut off the extracted sender name", () => {
+  const s = (label) => cleanTransactionText(label, []).extractedSenderName;
+  assert.strictEqual(s("BI-FAST CR TRANSFER DR 100426 BUDI SANTOSO infaq jumat"), "BUDI SANTOSO");
+  assert.strictEqual(s("SWITCHING CR TRF DR 100426 SITI AMINAH untuk zakat fitrah"), "SITI AMINAH");
+  assert.strictEqual(s("TRF DARI - 123456 - BUDI SANTOSO sedekah subuh"), "BUDI SANTOSO");
+  assert.strictEqual(s("0102/Ftscy/Ws95271 50000.00 Rio Kurnia Setyawa wakaf"), "Rio Kurnia Setyawa");
+  // nothing but a note: no person name
+  assert.strictEqual(s("SWITCHING CR TRF DR 100426 INFAQ JUMAT"), null);
+  // names that merely look like donation words stay intact
+  assert.strictEqual(s("BI-FAST CR TRANSFER DR 100426 AMAL HAKIM"), "AMAL HAKIM");
+  assert.strictEqual(s("TRF DARI - SINTA PATIMAH"), "SINTA PATIMAH");
+});
 await ok("QRIS aggregator and merchant labels have no person sender", () => {
   assert.strictEqual(cleanTransactionText("QR DSKL QURBAN", []).extractedSenderName, null);
   assert.strictEqual(cleanTransactionText("QR 123 456 MASJID ISLAM CENTER", []).extractedSenderName, null);

@@ -1447,6 +1447,7 @@ body {
 .badge-ai-semantic { background: rgba(56, 189, 248, 0.15); color: var(--accent); border: 1px solid var(--accent); }
 .badge-unauthorized-fallback { background: rgba(248, 113, 113, 0.15); color: var(--rose); border: 1px solid var(--rose); }
 .badge-manual-override { background: rgba(139, 153, 176, 0.15); color: var(--muted); border: 1px solid var(--muted); }
+.badge-learned { background: rgba(167, 139, 250, 0.15); color: var(--accent2); border: 1px solid var(--accent2); }
 
 .badge-unauthorized { background: rgba(248, 113, 113, 0.15); color: var(--rose); border: 1px solid var(--rose); }
 .badge-manual { background: rgba(139, 153, 176, 0.15); color: var(--muted); border: 1px solid var(--muted); }

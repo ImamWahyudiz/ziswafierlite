@@ -44,6 +44,18 @@ export function normalizeForMatch(text) {
     .toLowerCase();  // return lowercase for consistent substring matching
 }
 
+// Words that start the donor's free-text note, not their name. "amal"/"bantuan" are left out on
+// purpose: "Amal" is also a person's name.
+const NOTE_START_RE = /^(?:infaq|infak|infq|sedekah|sedeqah|shodaqoh|sodaqoh|shadaqah|zakat|zkt|wakaf|wkf|donasi|qurban|kurban|fidyah|fitrah|sumbangan|transfer|trf|untuk|buat)$/i;
+
+/** Keeps only the leading name tokens; null when the text starts with a note word. */
+function cutDonationNote(name) {
+  const tokens = String(name || '').trim().split(/\s+/).filter(Boolean);
+  const cut = tokens.findIndex((token) => NOTE_START_RE.test(token.replace(/[^a-z]/gi, '')));
+  if (cut === -1) return tokens.join(' ');
+  return cut === 0 ? null : tokens.slice(0, cut).join(' ');
+}
+
 export function cleanTransactionText(rawLabel, companyAliases) {
   let workingLabel = String(rawLabel || '');
   
@@ -133,6 +145,7 @@ export function cleanTransactionText(rawLabel, companyAliases) {
   
   if (extractedSenderName) {
     extractedSenderName = extractedSenderName.replace(/dana\d{8}[a-z0-9]+/gi, '');
+    extractedSenderName = cutDonationNote(extractedSenderName);
   }
   
   if (extractedSenderName) {
