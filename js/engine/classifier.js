@@ -17,6 +17,8 @@ const DONATION_RE = /(?:^|[^a-z0-9])(?:donasi|sedekah|shodaqoh|shadaqah|sodaqoh|
 const EXPLICIT_EXPENSE_RE = /(?:^|[^a-z0-9])(?:biaya\s+admin(?:istrasi)?|admin\s+bank|bank\s+charge|fee\s+transfer|beban\s+bank)(?=$|[^a-z0-9])/i;
 const NO_MATCH_REASON = 'Tidak ditemukan aturan deterministik; transaksi perlu ditinjau manual.';
 
+const AI_CONCURRENCY = 4;
+
 const round4 = value => Math.round(value * 10000) / 10000;
 
 function stripHonorific(name) {
@@ -394,21 +396,33 @@ export async function classifyBatch(rows, master, onProgress, options = {}) {
     return results;
   }
 
-  const chunkSize = 1;
-  for (let start = 0; start < pending.length; start += chunkSize) {
-    const indices = pending.slice(start, start + chunkSize);
-    try {
-      const aiResults = await classifySemanticBatchClient(indices.map(index => results[index]), master.programs || [], master.settings, false, aiContext(master));
-      indices.forEach((index, offset) => {
-        results[index] = applyAiResult(results[index], aiResults?.[offset], master);
-        report(results[index]);
-      });
-    } catch (error) {
-      for (const index of indices) {
-        results[index] = quarantine(results[index], master, `Gagal menghubungi AI: ${error.message}`);
-        report(results[index]);
+  // One provider request per distinct cleaned label, run by a small worker pool. Each request is
+  // independent, so results are written back by row index and do not depend on completion order.
+  const groups = new Map();
+  for (const index of pending) {
+    const key = String(results[index].cleanedLabel || '').trim();
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(index);
+  }
+  const queue = [...groups.values()];
+  let nextGroup = 0;
+  const worker = async () => {
+    while (nextGroup < queue.length) {
+      const indices = queue[nextGroup++];
+      try {
+        const [aiResult] = await classifySemanticBatchClient([results[indices[0]]], master.programs || [], master.settings, false, aiContext(master));
+        for (const index of indices) {
+          results[index] = applyAiResult(results[index], aiResult, master);
+          report(results[index]);
+        }
+      } catch (error) {
+        for (const index of indices) {
+          results[index] = quarantine(results[index], master, `Gagal menghubungi AI: ${error.message}`);
+          report(results[index]);
+        }
       }
     }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(AI_CONCURRENCY, queue.length) }, worker));
   return results;
 }

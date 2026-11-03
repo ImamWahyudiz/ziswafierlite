@@ -949,6 +949,46 @@ await ok("classifier derives AI account locally from an accepted program ID", as
   }
 });
 
+await ok("classifyBatch runs AI calls with bounded concurrency, one call per distinct label, correct row mapping", async () => {
+  const originalFetch = globalThis.fetch;
+  aiMatcher.clearAiCache();
+  aiMatcher.resetCircuitBreaker();
+  let calls = 0, inFlight = 0, maxInFlight = 0;
+  const labels = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"]; // odd positions -> prog-test, even -> no match
+  globalThis.fetch = async (_url, options) => {
+    const body = String(options.body || "");
+    const idx = labels.findIndex(label => body.includes(`semantic khusus ${label}`));
+    const itemId = (body.match(/cx-\d+/) || [])[0];
+    calls++; inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise(resolve => setTimeout(resolve, (labels.length - idx) * 12)); // earlier labels finish last
+    inFlight--;
+    const decision = idx % 2 === 0
+      ? { item_id: itemId, program_id: "prog-test", confidence: 0.92, reason: "sesuai" }
+      : { item_id: itemId, program_id: null, confidence: 0, reason: "tidak cocok" };
+    return { ok: true, status: 200, json: async () => ({ output_text: JSON.stringify({ decisions: [decision] }) }) };
+  };
+  try {
+    const master = JSON.parse(JSON.stringify(M));
+    master.programs = AI_PROGRAMS;
+    master.settings = { ...master.settings, ...AI_SETTINGS };
+    const rows = labels.map((label, i) => tx(`cx-${i}`, `semantic khusus ${label}`, 100000 + i * 1000));
+    rows.push(tx("cx-6", "semantic khusus alpha", 150000)); // duplicate label of cx-0
+    rows.push(tx("cx-7", "semantic khusus beta", 160000));  // duplicate label of cx-1
+    const out = await classifyBatch(rows, master);
+    assert.strictEqual(calls, labels.length, "one provider call per distinct label");
+    assert.ok(maxInFlight >= 2 && maxInFlight <= 4, `maxInFlight=${maxInFlight}`);
+    out.forEach((row, i) => {
+      const labelIdx = i < labels.length ? i : i === 6 ? 0 : 1;
+      assert.strictEqual(row.id, rows[i].id);
+      assert.strictEqual(row.matchedLayer, labelIdx % 2 === 0 ? "AI_SEMANTIC" : "UNAUTHORIZED_FALLBACK", row.id);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    aiMatcher.clearAiCache();
+    aiMatcher.resetCircuitBreaker();
+  }
+});
+
 await ok("AI isolates labels and rejects unknown IDs, direct COA, bad confidence, and wrong identity", async () => {
   const originalFetch = globalThis.fetch;
   let call = 0;
