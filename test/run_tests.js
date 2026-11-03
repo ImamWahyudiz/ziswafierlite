@@ -1035,6 +1035,26 @@ await ok("classifier eval harness reports coverage and precision on fixtures", (
   assert.ok(report.coverage >= 0.5);
 });
 
+await ok("restricted program keyword without fund signal is quarantined", () => {
+  const r = detTx("sumbangan masjid kampung", 100000);
+  assert.notStrictEqual(r.assignedCoa, 40203201);
+  assert.strictEqual(r.matchedLayer, "UNAUTHORIZED_FALLBACK");
+  assert.strictEqual(r.evidence?.type, "restricted_keyword_without_signal");
+});
+await ok("restricted program keyword with explicit fund signal still classifies", () => {
+  assert.strictEqual(detTx("wakaf pesantren", 100000).assignedCoa, 40203201);
+  assert.strictEqual(detTx("zakat fitrah", 100000).assignedCoa, 40100102);
+  assert.strictEqual(detTx("fitrah", 100000).assignedCoa, 40100102);
+});
+await ok("donor with non-zakat default program sending zakat label is not auto-filed", () => {
+  const r = detTx("Trf Dari - Donatur Contoh 01 - zakat fitrah", 100000);
+  assert.notStrictEqual(r.assignedProgramId, "prog-sdq-subuh");
+  assert.notStrictEqual(r.matchedLayer, "DONATUR_TETAP");
+});
+await ok("donor sending label without fund signal still uses default program", () => {
+  assert.strictEqual(detTx("Trf Dari - Donatur Contoh 01 - transfer", 100000).assignedProgramId, "prog-sdq-subuh");
+});
+
 console.log("== E2E PARITY: sample/inputt.xlsx vs sample/output.xlsx ==");
 let parityPct = -1;
 try {

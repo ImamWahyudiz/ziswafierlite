@@ -8,6 +8,11 @@ import { classifySemanticBatchClient } from "./ai_matcher.js";
 const HONORIFIC_RE = /^\s*(?:bapak|pak|ibu|bu|dr\.?|drs\.?|prof\.?|hj?\.?|ustaz(?:ah)?|ust\.?|kh\.?|mrs?\.?|miss|ms\.?)\s+/i;
 const ZAKAT_RE = /(?:^|[^a-z0-9])(?:zakat|zkt)(?=$|[^a-z0-9])/i;
 const WAKAF_RE = /(?:^|[^a-z0-9])wakaf(?=$|[^a-z0-9])/i;
+// A restricted fund (ZAKAT/WAKAF COA) may only be chosen when the text itself carries that signal.
+const FUND_SIGNAL = {
+  ZAKAT: /(?:^|[^a-z0-9])(?:zakat|zkt|fitrah|maal)(?=$|[^a-z0-9])/i,
+  WAKAF: /(?:^|[^a-z0-9])(?:wakaf|wkf)(?=$|[^a-z0-9])/i
+};
 const DONATION_RE = /(?:^|[^a-z0-9])(?:donasi|sedekah|shodaqoh|shadaqah|sodaqoh|sdkh|infaq|infak|amal|sumbangan|bantuan)(?=$|[^a-z0-9])/i;
 const EXPLICIT_EXPENSE_RE = /(?:^|[^a-z0-9])(?:biaya\s+admin(?:istrasi)?|admin\s+bank|bank\s+charge|fee\s+transfer|beban\s+bank)(?=$|[^a-z0-9])/i;
 const NO_MATCH_REASON = 'Tidak ditemukan aturan deterministik; transaksi perlu ditinjau manual.';
@@ -170,9 +175,14 @@ export function classifyDeterministic(tx, master) {
     });
   }
   const donor = donorDecision.donor;
-  if (donor) {
-    const program = programs.find(item => item.id === donor.defaultProgramId) || null;
-    const coa = program?.coaCode || donor.defaultCoa || master.settings.defaultBaselineCoa;
+  const donorProgram = donor ? programs.find(item => item.id === donor.defaultProgramId) || null : null;
+  const donorCoa = donor ? donorProgram?.coaCode || donor.defaultCoa || master.settings.defaultBaselineCoa : 0;
+  const donorCategory = categoryForCoa(master, donorCoa);
+  // A zakat/wakaf-labelled transfer must not be auto-filed under a donor's non-matching default program.
+  const donorFundConflict = Object.keys(FUND_SIGNAL).some(key => FUND_SIGNAL[key].test(normalizedLabel) && donorCategory !== key);
+  if (donor && !donorFundConflict) {
+    const program = donorProgram;
+    const coa = donorCoa;
     return assign(result, master, {
       coa, program, layer: 'DONATUR_TETAP', confidence: 0.9,
       reasoning: `Pengirim cocok dengan donatur terdaftar: ${donor.name}.`,
@@ -197,6 +207,12 @@ export function classifyDeterministic(tx, master) {
     if (WAKAF_RE.test(normalizedLabel) && category !== 'WAKAF') {
       return quarantine(result, master, `Keterangan menyebut wakaf tetapi program '${program.name}' bukan akun wakaf.`, {
         type: 'fund_category_conflict', value: { signal: 'wakaf', programId: program.id }
+      });
+    }
+    const signal = FUND_SIGNAL[category];
+    if (signal && !signal.test(normalizedLabel) && !signal.test(keyword)) {
+      return quarantine(result, master, `Kata kunci '${keyword}' mengarah ke dana ${category.toLowerCase()} terikat, tetapi keterangan tidak menyebut jenis dana tersebut.`, {
+        type: 'restricted_keyword_without_signal', value: { programId: program.id, keyword, category }
       });
     }
     return assign(result, master, {

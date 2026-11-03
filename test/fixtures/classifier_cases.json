@@ -23,11 +23,11 @@
     { "label": "wakaf", "amount": 100000, "expect": { "layer": "KEYWORD", "coa": 40203000 } },
     { "label": "pembayaran xyz", "amount": 100000, "expect": { "quarantine": true } },
     { "label": "", "amount": 100000, "expect": { "quarantine": true } },
-    { "label": "QRIS 12345 Toko Berkah", "amount": 25000, "expect": { "quarantine": true } }
+    { "label": "QRIS 12345 Toko Berkah", "amount": 25000, "expect": { "quarantine": true } },
+    { "label": "sumbangan masjid kampung", "amount": 100000, "expect": { "quarantine": true, "evidence": "restricted_keyword_without_signal" } },
+    { "label": "Trf Dari - Donatur Contoh 01 - zakat fitrah", "amount": 100000, "expect": { "notCoa": [40201001] } }
   ],
   "pendingCases": [
-    { "task": 2, "label": "sumbangan masjid kampung", "amount": 100000, "expect": { "quarantine": true, "evidence": "restricted_keyword_without_signal" } },
-    { "task": 2, "label": "Trf Dari - Donatur Contoh 01 - zakat fitrah", "amount": 100000, "expect": { "notCoa": [40201001] } },
     { "task": 3, "label": "Zakat fitrah keluarga", "amount": 50302, "expect": { "quarantine": true, "evidence": "tail_keyword_conflict" } },
     { "task": 4, "label": "infaq", "amount": 0, "expect": { "quarantine": true, "evidence": "invalid_amount" } }
   ]
