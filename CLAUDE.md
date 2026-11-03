@@ -12,6 +12,8 @@ node test/run_tests.js         # the only CI gate (Node 20); custom ok(name, fn)
 node docs/audit-repro.mjs      # 22 defect repros from the audit; exits 1 if any regress
 node docs/audit-datasets.mjs   # aggregate stats over test_data/test/Input 1-4.xlsx, AI OFF, no raw labels printed
 node --check js/app.js         # quick syntax check (no linter exists)
+node docs/audit-sender-coverage.mjs      # sender-extraction rate + masked miss shapes (local datasets only)
+node test/browser/e2e_learned.mjs        # manual browser E2E; needs `node serve.mjs` + Chromium on --remote-debugging-port=9333
 ```
 
 There is no single-test flag: add an `await ok("name", () => {...})` block to `test/run_tests.js` and temporarily comment out others, or probe with a throwaway `.mjs` that imports `js/engine/classifier.js` and `js/config/default_presets.js` directly.
@@ -35,6 +37,8 @@ Engine modules rely on `globalThis.XLSX`; `test/run_tests.js` loads the vendored
 
 An empty `matchedLayer` from `classifyDeterministic` means "no rule" (AI-eligible); `classifySingle/Batch` turn it into quarantine. `test/classifier_eval.js` + `test/fixtures/classifier_cases.json` hold labelled cases: add one when you change resolver behaviour. `docs/audit-sender-coverage.mjs` reports sender-extraction rate on the local datasets.
 
+Sender names are cut at the first donation note word (`cutDonationNote` in `sanitizer.js`). `classifyBatch` sends AI-eligible rows through a 4-worker pool, one request per distinct cleaned label.
+
 Every result carries structured `evidence` (`tail_code`, `donor`, `keyword`, `*_conflict`, `ai`, ...). Keep fail-closed behaviour: anything ambiguous goes to quarantine, never to an array-order pick.
 
 AI contract (`ai_matcher.js`): providers are only Gemini, OpenAI, Ollama; one label per request; model returns `program_id` (enum of master programs) or null, never a COA — the app derives the COA from the master. Responses are strictly validated; cache key is a fingerprint of provider/model/programs/system accounts/aliases; only `accepted_candidate`/`no_match` are cached. Donor names are never sent to the provider.
@@ -47,4 +51,4 @@ Data flow: `excel_adapter.parseBankStatement` -> `classifyBatch(rows, master)` -
 
 - `README.md` still uses the conceptual "5-Layer" naming; the order above is what runs.
 - `docs/AUDIT-REPO-2026-09-27.md` is the audit + stage log (Stages 1-5 done; Stage 6 = golden accuracy/live-AI verification still open).
-- `docs/superpowers/plans/2026-11-03-classifier-hardening.md` is the classifier hardening plan with its execution log (Tasks 1-8 done; backlog remains).
+- `docs/superpowers/plans/2026-11-03-classifier-hardening.md` is the classifier hardening plan with its execution log (Tasks 1-8 and follow-ups done; what remains needs a verified answer key and live API keys).

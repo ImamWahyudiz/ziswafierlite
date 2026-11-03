@@ -195,12 +195,25 @@ All 8 tasks executed inline on branch `worktree-classifier-plan`; `node test/run
 |---|---|---|
 | 1 Eval harness | 28 synthetic cases, coverage 0.75, precision 1.00 | Fixture grew with each task; `pendingCases` ended empty. |
 | 2 Restricted-fund guards | 32 of 3,999 rows moved KEYWORD -> quarantine (1,293 -> 1,261) | No separate `donor_fund_conflict` evidence: a conflicting donor falls through to the keyword layer, which decides or quarantines. |
-| 3 Tail vs keyword | 18 of 107 tail rows are contradicted by a keyword | **Changed.** Quarantining contradicted tails broke the audit's approved order (existing test "tail then donor before keyword"). Kept tail decisive; contradicted tails get confidence 0.8 + `evidence.contradictedByKeywordProgramId`. Owner decision needed: promote to quarantine once a golden set shows which signal is right. |
+| 3 Tail vs keyword | 18 of 107 tail rows are contradicted by a keyword | **Changed.** Quarantining contradicted tails broke the audit's approved order (existing test "tail then donor before keyword"). Kept tail decisive; contradicted tails get confidence 0.8 + `evidence.contradictedByKeywordProgramId`. **Owner decision (2026-11-03): the tail code wins; do not quarantine.** Implemented as is; contradicted rows stay visible via confidence 0.8 and evidence. |
 | 4 Invalid amounts | 0 dataset rows affected | None. |
-| 5 Sender patterns | Sender rate 79.7% -> 85.9% (3,186 -> 3,437 of 3,999) | Patterns derived from the real shapes (BI-FAST CR, SWITCHING CR, `TRF DARI - <ref> - <name>`). 433 of the 562 remaining misses are QRIS aggregator rows with no person. The `Partner` column is empty on every miss, so a partner fallback would not help on this data. |
+| 5 Sender patterns | Names extracted 79.7% -> 85.9% (3,186 -> 3,437 of 3,999); see follow-up below for the cleaned figure | Patterns derived from the real shapes (BI-FAST CR, SWITCHING CR, `TRF DARI - <ref> - <name>`). 433 of the 562 remaining misses are QRIS aggregator rows with no person. The `Partner` column is empty on every miss, so a partner fallback would not help on this data. |
 | 6 Fuzzy keyword | 12 rows, all genuine misspellings (e.g. sedeqah, bismilah, fitraah) | None. Fuzzy hits are excluded from the tail cross-check. |
-| 7 LEARNED layer | Engine + store tested; UI wired | Learning happens only on the two single-row COA pickers, not on bulk actions or when parking a row in Unauthorized/Beban. No progress-counter spans for `LEARNED` (same as `ORG_ALIAS`). **Not verified in a browser** (no browser tool in this session): click-through of correct -> re-upload -> badge and the clear button is still to do. |
-| 8 Docs | `AGENTS.md`, `CLAUDE.md` synced | README left as-is (conceptual "5-Layer" naming). |
+| 7 LEARNED layer | Engine + store tested; UI wired; verified in a real browser (see follow-up) | Learning happens only on the two single-row COA pickers, not on bulk actions or when parking a row in Unauthorized/Beban. No progress-counter spans for `LEARNED` (same as `ORG_ALIAS`). |
+| 8 Docs | `AGENTS.md`, `CLAUDE.md`, `README.md` synced | README keeps the "5-Layer" title but now lists the real order and the cloud-AI privacy caveat. |
+
+### Follow-up (closing the open items)
+
+- **Browser verification of `LEARNED`:** `test/browser/e2e_learned.mjs` drives headless Chromium over the DevTools protocol against `node serve.mjs`: seed two quarantined rows, correct one through the real COA picker, upload a CSV with the same label via `#file-input` + `#btn-merge-file`, expect `LEARNED` / COA 40202201 / badge, unrelated row untouched, then the clear button. 11 checks passed, 0 page errors. This found a real gap: `.badge-learned` had no CSS (fixed in `css/style.css`).
+- **Sender names polluted with note text:** 438 extracted names contained words like infaq/zakat. `cutDonationNote` now keeps only the leading name tokens (and returns null when the text starts with a note word; "Amal" is deliberately not treated as a note word). Polluted names 438 -> 0. Names extracted 3,437 -> 3,011 of 3,999 (**75.3%**), because 426 "names" were only note text. 75.3% is the honest figure; classification output is unchanged.
+- **AI throughput (W9):** `classifyBatch` runs a pool of 4 workers, one provider request per distinct cleaned label, results written back by row index. Test covers dedupe, `maxInFlight` between 2 and 4, and correct mapping when responses finish out of order. Cache, schema, and fingerprint are untouched.
+- **README:** real decision order and the cloud-AI privacy caveat (donor list is not sent, but a label may contain the sender's name).
+
+### Still open (needs input only the owner can give)
+
+- A verified answer key (rows with the correct COA) to measure real accuracy and to re-judge the 18 contradicted tail rows. Stage 6 of the audit depends on it.
+- Live provider calls with a real API key (never done; keys in `test_data` are placeholders).
+- Backlog: n-gram kNN over learned corrections and stemming/concatenated words, only if the answer key shows they matter.
 
 ## Self-review
 

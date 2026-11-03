@@ -81,6 +81,16 @@ Setiap baris mutasi bank diproses secara sekuensial dan deterministik melalui ar
   <img src="./docs/pipeline-5layer.svg" alt="Arsitektur 5-Layer Hybrid Classification Pipeline" width="760" />
 </p>
 
+Urutan keputusan yang benar-benar dijalankan oleh mesin (satu *resolver* bersama untuk unggah, klasifikasi tunggal, dan pemindaian ulang):
+
+1. **Sanitizer** — membuang noise bank dan mengekstrak nama pengirim (BI-FAST, Trf Dari, BCA, BI-FAST/SWITCHING CR).
+2. **Beban** — nominal negatif atau frasa biaya bank yang eksplisit. Nominal nol/tidak valid masuk karantina.
+3. **Dipelajari** — keterangan yang sama persis dengan yang pernah Anda koreksi manual (disimpan lokal di peramban; dapat dihapus di tab Backup).
+4. **Kode Ekor** — digit akhir nominal cocok dengan kode ekor program. Jika kata kunci menunjuk program lain, keyakinan diturunkan ke 0,80 dan ditandai untuk ditinjau.
+5. **Donatur Tetap** — nama pengirim cocok dengan donatur terdaftar (dilewati jika keterangan menyebut zakat/wakaf yang tidak sesuai program default donatur).
+6. **Kata Kunci** — pencocokan frasa utuh berprioritas; salah ketik satu huruf pada kata kunci panjang ditoleransi. Program zakat/wakaf wajib didukung kata zakat/wakaf yang eksplisit.
+7. **AI semantik (opsional)** dan **karantina *Unauthorized*** — setiap kasus ambigu, konflik, atau tidak pasti masuk karantina, tidak pernah dipilih berdasarkan urutan data.
+
 ---
 
 ## ✨ Fitur Utama
@@ -104,7 +114,7 @@ Setiap baris mutasi bank diproses secara sekuensial dan deterministik melalui ar
 ## 🔒 Privasi & Keamanan Data
 
 - **100% Client-Side Processing**: Seluruh kalkulasi, pembersihan teks, dan pembuatan berkas Excel dieksekusi di RAM browser Anda menggunakan JavaScript.
-- **Zero Server Telemetry**: Tidak ada rekaman transaksi bank, nama pengirim, atau nominal keuangan yang dikirim ke server mana pun.
+- **Zero Server Telemetry**: Aplikasi tidak mengirim rekaman transaksi ke server milik kami. Pengecualian: jika Anda sendiri mengaktifkan AI cloud (Gemini/OpenAI), keterangan transaksi yang belum terpetakan secara lokal, daftar program, dan alias lembaga dikirim langsung ke penyedia pilihan Anda. Daftar donatur terdaftar tidak dikirim, tetapi teks keterangan transaksi dapat memuat nama pengirim. Mode AI bawaan adalah **OFF**, dan Ollama lokal tidak mengirim data keluar perangkat.
 - **Aman untuk Evaluasi Lembaga**: Amil dapat menguji file mutasi riil tanpa khawatir melanggar kerahasiaan data perbankan nasabah.
 
 ---
