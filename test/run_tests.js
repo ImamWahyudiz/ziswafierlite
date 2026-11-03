@@ -1071,6 +1071,16 @@ await ok("tail code agreeing with keyword is boosted and tail alone still decide
   assert.strictEqual(alone.assignedProgramId, "prog-gizi");
 });
 
+await ok("zero and non-numeric amounts are quarantined as invalid, valid ones unaffected", () => {
+  for (const bad of [0, NaN, "abc", null, undefined]) {
+    const r = detTx("infaq", bad);
+    assert.strictEqual(r.matchedLayer, "UNAUTHORIZED_FALLBACK", `amount ${String(bad)}`);
+    assert.strictEqual(r.evidence?.type, "invalid_amount", `amount ${String(bad)}`);
+  }
+  assert.strictEqual(detTx("infaq", 100000).matchedLayer, "KEYWORD");
+  assert.strictEqual(detTx("biaya admin", -6500).matchedLayer, "EXPENSE");
+});
+
 console.log("== E2E PARITY: sample/inputt.xlsx vs sample/output.xlsx ==");
 let parityPct = -1;
 try {

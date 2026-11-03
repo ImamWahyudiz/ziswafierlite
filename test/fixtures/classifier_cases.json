@@ -25,9 +25,9 @@
     { "label": "", "amount": 100000, "expect": { "quarantine": true } },
     { "label": "QRIS 12345 Toko Berkah", "amount": 25000, "expect": { "quarantine": true } },
     { "label": "sumbangan masjid kampung", "amount": 100000, "expect": { "quarantine": true, "evidence": "restricted_keyword_without_signal" } },
-    { "label": "Trf Dari - Donatur Contoh 01 - zakat fitrah", "amount": 100000, "expect": { "notCoa": [40201001] } }
+    { "label": "Trf Dari - Donatur Contoh 01 - zakat fitrah", "amount": 100000, "expect": { "notCoa": [40201001] } },
+    { "label": "Zakat fitrah keluarga", "amount": 50302, "expect": { "layer": "CAMPAIGN_TAIL", "coa": 40202302 } },
+    { "label": "infaq", "amount": 0, "expect": { "quarantine": true, "evidence": "invalid_amount" } }
   ],
-  "pendingCases": [
-    { "task": 4, "label": "infaq", "amount": 0, "expect": { "quarantine": true, "evidence": "invalid_amount" } }
-  ]
+  "pendingCases": []
 }

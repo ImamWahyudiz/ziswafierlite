@@ -139,6 +139,11 @@ export function classifyDeterministic(tx, master) {
   const normalizedRaw = normalizeEvidence(tx.rawLabel);
   const amount = Number(tx.rawAmount) || 0;
 
+  if (amount === 0) {
+    return quarantine(result, master, 'Nominal transaksi tidak valid atau nol; perlu ditinjau manual.', {
+      type: 'invalid_amount', value: tx.rawAmount ?? null
+    });
+  }
   if (amount < 0 || EXPLICIT_EXPENSE_RE.test(normalizedRaw)) {
     return assign(result, master, {
       coa: master.settings.expenseCoa,
