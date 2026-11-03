@@ -6,15 +6,25 @@ Every change moves through one end-to-end flow. `AGENTS.md` holds the repo facts
 
 ## Team
 
-| Role | Runs as | Owns | Task |
+| Role | Model | Owns | Task |
 |---|---|---|---|
-| **lead** | Main session | `CLAUDE.md`, `AGENTS.md`, `README.md`, `docs/`, the brief, the branch | Spec, route, integrate, review the whole diff, ship |
-| **engine-dev** | Subagent | `js/engine/`, `js/config/`, `js/services/`, `js/store/` | Classification, AI matching, parse and export, persistence |
-| **ui-dev** | Subagent | `app.html`, `index.html`, `js/app.js`, `js/landing.js`, `css/` | Screens, flows, Indonesian copy, themes, responsive layout |
-| **qa** | Subagent | Coverage in `test/run_tests.js`, `docs/audit-repro.mjs` | Independent PASS/FAIL verdict against the brief |
-| **security-release** | Subagent | `vercel.json`, `.github/`, `serve.mjs`, CSP meta tags, `robots.txt`, `sitemap.xml`, `site.webmanifest` | Security review, CSP sync, deploy readiness |
+| **lead** | Main session (flagship) | `CLAUDE.md`, `AGENTS.md`, `README.md`, `docs/`, the brief, the branch | Spec, route, integrate, review the whole diff, ship |
+| **scout** | haiku | Nothing (read-only) | Search, trace, list affected files, run a gate and condense the log |
+| **engine-dev** | sonnet | `js/engine/`, `js/config/`, `js/services/`, `js/store/` | Classification, AI matching, parse and export, persistence |
+| **ui-dev** | sonnet | `app.html`, `index.html`, `js/app.js`, `js/landing.js`, `css/` | Screens, flows, Indonesian copy, themes, responsive layout |
+| **qa** | sonnet | Coverage in `test/run_tests.js`, `docs/audit-repro.mjs` | Independent PASS/FAIL verdict against the brief |
+| **security-release** | sonnet | `vercel.json`, `.github/`, `serve.mjs`, CSP meta tags, `robots.txt`, `sitemap.xml`, `site.webmanifest` | Security review, CSP sync, deploy readiness |
 
-Specialists edit only what they own and hand anything else back to lead. Developers may append their own tests to `test/run_tests.js`.
+Specialists edit only what they own and hand anything else back to lead. Developers may append their own tests to `test/run_tests.js`. Each model is pinned in the role's `.claude/agents/*.md`.
+
+## Delegation
+
+Lead spends flagship tokens on judgment only: the brief, routing, and reading reports and diffs. Everything else is dispatched.
+
+- Lead edits only the files it owns in the table above. Any change under `js/`, `css/`, `app.html`, `index.html`, `test/`, or deploy config goes to its owner, however small.
+- Lead sends repo exploration and gate runs to **scout**, and reads the 15-line answer.
+- Lead reads a changed file only when reviewing the diff at step 6.
+- A role that finds the task is outside its files returns to lead with the reason, and lead re-routes.
 
 ## Flow
 
@@ -39,7 +49,7 @@ Specialists edit only what they own and hand anything else back to lead. Develop
 
 ## Session hygiene
 
-The main session is lead and runs on Sonnet. Lead writes briefs, routes, reviews diffs, and orchestrates; the build work happens in subagent contexts that return only their reports.
+The main session is lead. Lead writes briefs, routes, reviews diffs, and orchestrates; the build work happens in subagent contexts that return only their reports (see Delegation).
 
 - **`/compact`:** once the conversation passes 15–20 turns, lead asks the user to run `/compact`.
 - **`/clear`:** after a subagent's report is integrated (step 6) and the work is committed, lead asks the user to run `/clear` before the next task. Clearing earlier drops the brief and the pending reports, so lead restates the brief first if work is still in flight.
