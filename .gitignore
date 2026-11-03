@@ -75,3 +75,7 @@ tmp/
 *.tmp
 *.bak
 *.local
+
+# Claude Code local state (.claude/agents is tracked)
+.claude/worktrees/
+.claude/settings.local.json
